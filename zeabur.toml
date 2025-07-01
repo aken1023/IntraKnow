@@ -1,0 +1,125 @@
+# Zeabur 配置文件 - Python 原生部署
+# 企業知識庫系統（LlamaIndex + FAISS + 用戶認證）
+
+[build]
+# 指定構建類型為 Python
+type = "python"
+
+# 指定 Python 版本
+python_version = "3.11"
+
+# 指定依賴文件（會依序嘗試）
+requirements = [
+    "scripts/requirements-api-only.txt", # 優先使用純 API 版本（最穩定）
+    "scripts/requirements-minimal.txt",  # 備用最小化依賴
+    "scripts/requirements-zeabur.txt",   # 備用完整依賴
+    "scripts/requirements.txt"           # 最後備用
+]
+
+# 構建命令（可選）
+build_command = """
+echo "=== Zeabur 原生 Python 部署 ===" &&
+echo "📂 當前目錄: $(pwd)" &&
+echo "🐍 Python 版本: $(python --version)" &&
+echo "📦 安裝依賴..." &&
+cd scripts &&
+echo "✅ 依賴安裝完成"
+"""
+
+[run]
+# 啟動命令
+start_command = "python scripts/main.py"
+
+# 工作目錄
+working_directory = "."
+
+# 暴露端口
+port = 8000
+
+# 環境變數
+[env]
+# Python 相關
+PYTHONPATH = "/opt/zeabur/src"
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
+
+# 應用相關
+PORT = "8000"
+HOST = "0.0.0.0"
+
+# 運行時設置
+[runtime]
+# 健康檢查
+health_check = "/health"
+
+# 啟動超時（秒）
+start_timeout = 300
+
+# 記憶體限制（MB）
+memory_limit = 1024
+
+# CPU 限制
+cpu_limit = 1.0
+
+# 重啟策略
+restart_policy = "always"
+
+[services.backend]
+# 服務名稱
+name = "llamaindex-knowledge-base"
+
+# 服務描述
+description = "企業知識庫系統 - 支持用戶認證和AI模型管理"
+
+# 版本
+version = "2.0.0"
+
+# 區域偏好
+regions = ["hkg", "nrt", "sin"]
+
+# 自動擴展設置
+[services.backend.scaling]
+min_instances = 1
+max_instances = 3
+target_cpu = 70
+
+# 日誌設置
+[logging]
+level = "INFO"
+format = "json"
+
+# 持久化存儲配置
+[storage]
+# 用戶文檔存儲
+user_documents = {
+    path = "user_documents",
+    type = "persistent",
+    size = "5GB"
+}
+
+# 用戶索引存儲  
+user_indexes = {
+    path = "user_indexes", 
+    type = "persistent",
+    size = "2GB"
+}
+
+# 數據庫存儲
+database = {
+    path = "knowledge_base.db",
+    type = "persistent", 
+    size = "1GB"
+}
+
+# 日誌存儲
+logs = {
+    path = "logs",
+    type = "temporary",
+    size = "500MB"
+}
+
+# 開發模式設置
+[dev]
+# 開發時的環境變數
+auto_reload = true
+debug = true 

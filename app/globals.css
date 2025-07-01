@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* --- 文青風格改造 --- */
+
+/* 1. 引入 Google Fonts: Noto Sans TC (內文) 和 Noto Serif TC (標題) */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@400;600;700&display=swap');
+
+@layer base {
+  /* 2. 定義新的色彩變數 (文青風格色板) */
+  :root {
+    /* 柔和米白背景 */
+    --background: 48 33% 96%; /* hsl(48, 33%, 96%) -> #f9f8f2 */
+    /* 深炭灰文字 */
+    --foreground: 240 10% 20%; /* hsl(240, 10%, 20%) -> #2d2d33 */
+
+    --card: 48 33% 97%; /* 卡片背景稍微亮一點 */
+    --card-foreground: 240 10% 20%;
+
+    --popover: 48 33% 97%;
+    --popover-foreground: 240 10% 20%;
+
+    /* 主色調: 低飽和度的鼠尾草綠 */
+    --primary: 158 25% 50%; /* hsl(158, 25%, 50%) */
+    --primary-foreground: 158 25% 98%; /* 在主色調上的文字顏色 */
+
+    --secondary: 158 15% 80%;
+    --secondary-foreground: 158 25% 30%;
+
+    --muted: 240 5% 90%;
+    --muted-foreground: 240 5% 45%;
+
+    --accent: 158 15% 85%;
+    --accent-foreground: 158 25% 30%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 86% 97%;
+
+    /* 邊框和輸入框使用更淺的灰色 */
+    --border: 240 5% 85%;
+    --input: 240 5% 88%;
+    --ring: 158 25% 50%;
+
+    --radius: 0.5rem; /* 圓角可以稍微小一點，更顯俐落 */
+  }
+
+  .dark {
+    /* 深色模式: 深藍灰色調 */
+    --background: 222 47% 11%; /* #0f172a */
+    --foreground: 210 40% 96%; /* #f1f5f9 */
+
+    --card: 222 47% 13%;
+    --card-foreground: 210 40% 96%;
+
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 96%;
+
+    /* 主色調: 稍亮的鼠尾草綠 */
+    --primary: 158 28% 60%;
+    --primary-foreground: 158 25% 10%;
+
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 96%;
+
+    --muted: 217 33% 22%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 217 33% 22%;
+    --accent-foreground: 210 40% 96%;
+
+    --destructive: 0 63% 45%;
+    --destructive-foreground: 0 86% 97%;
+
+    --border: 217 33% 27%;
+    --input: 217 33% 27%;
+    --ring: 158 28% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    /* 3. 應用背景和文字顏色，並設定預設字體為無襯線體 */
+    @apply bg-background text-foreground;
+    font-family: 'Noto Sans TC', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  /* 增加一個 text-balance 的 class 來平衡標題文字 */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* 4. 響應式設計輔助類 (保留，這很有用) */
+  .responsive-container {
+    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+}
