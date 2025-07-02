@@ -89,41 +89,203 @@ RUN npm cache clean --force || true
 # 創建必要目錄和配置
 RUN mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled user_documents user_indexes logs faiss_index .cache/torch .cache/huggingface
 
-# 創建 Nginx 配置
-RUN printf 'server {\n\
-    listen 80;\n\
-    server_name _;\n\
-    client_max_body_size 50M;\n\
-    location / {\n\
-        proxy_pass http://localhost:3000;\n\
-        proxy_set_header Host $host;\n\
-        proxy_set_header X-Real-IP $remote_addr;\n\
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
-        proxy_set_header X-Forwarded-Proto $scheme;\n\
-        proxy_connect_timeout 60s;\n\
-        proxy_send_timeout 60s;\n\
-        proxy_read_timeout 60s;\n\
-    }\n\
-    location /api/ {\n\
-        proxy_pass http://localhost:8000/api/;\n\
-        proxy_set_header Host $host;\n\
-        proxy_set_header X-Real-IP $remote_addr;\n\
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
-        proxy_set_header X-Forwarded-Proto $scheme;\n\
-    }\n\
-    location /auth/ {\n\
-        proxy_pass http://localhost:8000/auth/;\n\
-        proxy_set_header X-Real-IP $remote_addr;\n\
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
-        proxy_set_header X-Forwarded-Proto $scheme;\n\
-    }\n\
-    location /health {\n\
-        proxy_pass http://localhost:8000/health;\n\
-        proxy_set_header Host $host;\n\
-    }\n\
-}' > /etc/nginx/sites-available/default
+# 創建 Nginx 主配置
+RUN cat > /etc/nginx/nginx.conf << 'EOF'
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 1024;
+    multi_accept on;
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    server_tokens off;
+
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    gzip on;
+    gzip_disable "msie6";
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+EOF
+
+# 創建 Nginx 站點配置
+RUN cat > /etc/nginx/sites-available/default << 'EOF'
+upstream frontend {
+    server 127.0.0.1:3000;
+    keepalive 32;
+}
+
+upstream backend {
+    server 127.0.0.1:8000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name _;
+    
+    # 基本設置
+    client_max_body_size 50M;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_cache_bypass $http_upgrade;
+    
+    # 超時設置
+    proxy_connect_timeout 180s;
+    proxy_send_timeout 180s;
+    proxy_read_timeout 180s;
+    
+    # 緩衝設置
+    proxy_buffering on;
+    proxy_buffer_size 128k;
+    proxy_buffers 4 256k;
+    proxy_busy_buffers_size 256k;
+
+    # 錯誤頁面
+    error_page 502 /502.html;
+    location = /502.html {
+        root /usr/share/nginx/html;
+        internal;
+    }
+
+    # 前端代理
+    location / {
+        proxy_pass http://frontend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 重試設置
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+        proxy_next_upstream_tries 3;
+        proxy_next_upstream_timeout 10s;
+        
+        # 開發模式 WebSocket 支持
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # 後端 API 代理
+    location /api/ {
+        proxy_pass http://backend/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # API 特定超時
+        proxy_connect_timeout 180s;
+        proxy_send_timeout 180s;
+        proxy_read_timeout 180s;
+    }
+
+    # 認證 API 代理
+    location /auth/ {
+        proxy_pass http://backend/auth/;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # 認證特定超時
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # 健康檢查端點
+    location = /health {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 'OK';
+    }
+
+    # 靜態文件
+    location /static/ {
+        alias /app/.next/static/;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+    }
+}
+EOF
 
 RUN ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/
+
+# 創建 502 錯誤頁面
+RUN mkdir -p /usr/share/nginx/html && \
+    cat > /usr/share/nginx/html/502.html << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>暫時無法連接服務器</title>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 600px;
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        p {
+            color: #666;
+            line-height: 1.6;
+        }
+        .retry-button {
+            display: inline-block;
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            text-decoration: none;
+            margin-top: 20px;
+            transition: background-color 0.3s;
+        }
+        .retry-button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>暫時無法連接服務器</h1>
+        <p>系統正在啟動或維護中，請稍後再試。如果問題持續存在，請聯繫系統管理員。</p>
+        <a href="/" class="retry-button" onclick="window.location.reload(); return false;">重試連接</a>
+    </div>
+</body>
+</html>
+EOF
 
 # 創建 Supervisor 配置（簡化前端啟動）
 RUN cat > /etc/supervisor/conf.d/supervisord.conf << 'EOF'
@@ -137,6 +299,8 @@ command=nginx -g "daemon off;"
 autostart=true
 autorestart=true
 priority=100
+stdout_logfile=/var/log/nginx_access.log
+stderr_logfile=/var/log/nginx_error.log
 
 [program:backend]
 command=python scripts/auth_api_server.py
@@ -147,6 +311,8 @@ environment=PYTHONPATH="/app",PYTHONUNBUFFERED="1"
 priority=200
 startretries=5
 startsecs=10
+stdout_logfile=/var/log/backend.log
+stderr_logfile=/var/log/backend_error.log
 
 [program:frontend]
 command=bash -c "NODE_ENV=development npm run dev"
@@ -187,6 +353,10 @@ if [ ! -d ".next" ]; then
     mkdir -p .next/static .next/server/pages
     echo '{"version":"dev","buildId":"development"}' > .next/build-manifest.json
 fi
+
+# 檢查 Nginx 配置
+echo "🔍 檢查 Nginx 配置..."
+nginx -t || echo "⚠️ Nginx 配置可能有問題"
 
 echo "✅ 啟動前後端服務（前端使用開發模式確保穩定性）..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
