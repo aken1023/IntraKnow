@@ -34,16 +34,16 @@ RUN rm -rf node_modules package-lock.json .next
 
 # 安裝依賴（分步進行以便調試）
 RUN echo "=== 安裝依賴 ===" && \
-    npm install --legacy-peer-deps --verbose
+    npm install --legacy-peer-deps
 
 # 檢查安裝結果
 RUN echo "=== 檢查安裝結果 ===" && \
     test -d node_modules && echo "✅ node_modules 已創建" || echo "❌ node_modules 未創建" && \
     npm list --depth=0 2>/dev/null | head -10 || echo "依賴列表無法顯示"
 
-# 構建前端（添加詳細輸出）
+# 設置環境變數並構建前端
 RUN echo "=== 開始 Next.js 構建 ===" && \
-    npm run build --verbose
+    NODE_ENV=production npm run build
 
 # 檢查構建結果
 RUN echo "=== 檢查構建結果 ===" && \

@@ -34,9 +34,6 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   output: 'standalone',
-  experimental: {
-    optimizeCss: true,
-  },
   webpack: (config, { isServer }) => {
     // 確保路徑別名在所有環境中正常工作
     config.resolve.alias = {
