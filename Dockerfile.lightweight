@@ -1,0 +1,121 @@
+# 企業知識庫系統 - Zeabur 輕量化部署 Dockerfile
+# 針對網絡問題優化的版本
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 一次性安裝所有系統依賴，減少層數
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    nginx \
+    supervisor \
+    --no-install-recommends \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# 設置環境變數
+ENV PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1 \
+    NODE_ENV=production \
+    TORCH_HOME=/app/.cache/torch \
+    HF_HOME=/app/.cache/huggingface
+
+# 升級 pip
+RUN pip install --no-cache-dir --upgrade pip
+
+# 複製並安裝 Python 依賴（使用最小化依賴）
+COPY scripts/requirements-minimal.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 複製前端文件並構建
+COPY package*.json ./
+COPY app/ ./app/
+COPY components/ ./components/
+COPY public/ ./public/
+COPY *.config.* ./
+COPY tailwind.config.js ./
+COPY tsconfig.json ./
+
+# 安裝前端依賴並構建（一步完成）
+RUN npm ci --only=production --silent \
+    && npm run build \
+    && npm cache clean --force
+
+# 複製後端代碼
+COPY scripts/ ./scripts/
+COPY documents/ ./documents/
+
+# 創建所有配置文件（減少層數）
+RUN mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled user_documents user_indexes logs faiss_index .cache/torch .cache/huggingface \
+    && printf 'server {\n\
+    listen 80;\n\
+    server_name _;\n\
+    client_max_body_size 50M;\n\
+    location / {\n\
+        proxy_pass http://localhost:3000;\n\
+        proxy_set_header Host $host;\n\
+        proxy_set_header X-Real-IP $remote_addr;\n\
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+        proxy_set_header X-Forwarded-Proto $scheme;\n\
+    }\n\
+    location /api/ {\n\
+        proxy_pass http://localhost:8000/api/;\n\
+        proxy_set_header Host $host;\n\
+        proxy_set_header X-Real-IP $remote_addr;\n\
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+        proxy_set_header X-Forwarded-Proto $scheme;\n\
+    }\n\
+    location /auth/ {\n\
+        proxy_pass http://localhost:8000/auth/;\n\
+        proxy_set_header Host $host;\n\
+        proxy_set_header X-Real-IP $remote_addr;\n\
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+        proxy_set_header X-Forwarded-Proto $scheme;\n\
+    }\n\
+}' > /etc/nginx/sites-available/default \
+    && ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/ \
+    && printf '[supervisord]\n\
+nodaemon=true\n\
+user=root\n\
+\n\
+[program:nginx]\n\
+command=nginx -g "daemon off;"\n\
+autostart=true\n\
+autorestart=true\n\
+priority=100\n\
+\n\
+[program:backend]\n\
+command=python scripts/auth_api_server.py\n\
+directory=/app\n\
+autostart=true\n\
+autorestart=true\n\
+environment=PYTHONPATH="/app",PYTHONUNBUFFERED="1"\n\
+priority=200\n\
+\n\
+[program:frontend]\n\
+command=npm start\n\
+directory=/app\n\
+autostart=true\n\
+autorestart=true\n\
+environment=NODE_ENV="production",PORT="3000"\n\
+priority=300' > /etc/supervisor/conf.d/supervisord.conf \
+    && printf '#!/bin/bash\n\
+set -e\n\
+mkdir -p user_documents user_indexes logs\n\
+if [ -f "scripts/setup_knowledge_base.py" ]; then\n\
+    python scripts/setup_knowledge_base.py\n\
+fi\n\
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf' > /app/start.sh \
+    && chmod +x /app/start.sh
+
+EXPOSE 80
+
+# 簡化的健康檢查
+HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=2 \
+    CMD curl -f http://localhost:80/ || exit 1
+
+CMD ["/app/start.sh"] 
