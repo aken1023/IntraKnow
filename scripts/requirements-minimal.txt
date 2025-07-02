@@ -1,4 +1,10 @@
-# 最小化依賴 - Zeabur 部署用（避免版本衝突）
+# 最小化依賴 - Zeabur 部署用（修復 PyTorch 安全漏洞）
+
+# PyTorch (安全版本，修復 CVE-2025-32434)
+torch>=2.6.0
+transformers>=4.40.0
+sentence-transformers>=2.5.0
+safetensors>=0.4.0
 
 # Web 框架（核心）
 fastapi>=0.100.0
