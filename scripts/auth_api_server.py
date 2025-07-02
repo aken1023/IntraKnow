@@ -8,9 +8,24 @@ import base64
 import os
 import sys
 import uuid
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Annotated
+
+# 配置日誌
+log_dir = Path(__file__).parent.parent / 'logs'
+log_dir.mkdir(exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_dir / "app.log", encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
 
 # 添加項目根目錄到 Python 路徑（用於雲端部署）
 current_dir = Path(__file__).parent
@@ -72,7 +87,7 @@ try:
     finally:
         db.close()
 except Exception as e:
-    print(f"數據庫初始化警告: {e}")
+    logger.warning(f"數據庫初始化警告: {e}")
     # 繼續運行，可能在後續請求中重新初始化
 
 app = FastAPI(title="企業知識庫 API (支持用戶認證)", version="2.0.0")
@@ -99,14 +114,14 @@ def initialize_kb_system():
     global user_kb_system, kb_system_error
     
     try:
-        print("🔄 正在初始化 AI 知識庫系統...")
+        logger.info("正在初始化 AI 知識庫系統...")
         user_kb_system = UserKnowledgeBaseSystem()
-        print("✅ AI 知識庫系統初始化成功")
+        logger.info("AI 知識庫系統初始化成功")
         kb_system_error = None
         return True
     except Exception as e:
-        print(f"⚠️ AI 知識庫系統初始化失敗: {e}")
-        print("💡 系統將以基礎模式運行（不含 AI 功能）")
+        logger.warning(f"AI 知識庫系統初始化失敗: {e}")
+        logger.info("系統將以基礎模式運行（不含 AI 功能）")
         user_kb_system = None
         kb_system_error = str(e)
         return False
@@ -228,6 +243,7 @@ async def root():
 
 @app.post("/auth/register", response_model=Token)
 async def register(user_data: UserRegister, db: Session = Depends(get_db)):
+    logger.info(f"Attempting to register new user: {user_data.username}")
     """用戶註冊"""
     # 檢查用戶名是否已存在
     if get_user_by_username(db, user_data.username):
@@ -268,6 +284,7 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
 
 @app.post("/auth/login", response_model=Token)
 async def login(user_data: UserLogin, db: Session = Depends(get_db)):
+    logger.info(f"User login attempt: {user_data.username}")
     """用戶登入"""
     user = authenticate_user(db, user_data.username, user_data.password)
     
@@ -359,6 +376,7 @@ async def upload_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    logger.info(f"User {current_user.username} uploading document: {file.filename}")
     """上傳文檔 (需要認證)"""
     try:
         # 檢查文件大小限制 (500MB)
@@ -417,7 +435,7 @@ async def upload_document(
                 user_kb_system.build_user_index(current_user.id)
                 index_status = "AI 索引已更新"
             except Exception as e:
-                print(f"索引建立失敗: {e}")
+                logger.error(f"索引建立失敗: {e}")
                 index_status = f"索引建立失敗: {str(e)}"
         
         return {
@@ -437,6 +455,7 @@ async def query_knowledge_base(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    logger.info(f"User {current_user.username} querying with: {request.query}")
     """查詢個人知識庫 (需要認證)"""
     start_time = time.time()
     
@@ -525,19 +544,34 @@ async def delete_user_document(
     db: Session = Depends(get_db)
 ):
     """刪除用戶文檔 (需要認證)"""
-    success = delete_document(db, document_id, current_user.id)
+    # 先從數據庫獲取文檔信息
+    doc = db.query(Document).filter(
+        Document.id == document_id,
+        Document.user_id == current_user.id
+    ).first()
     
-    if not success:
-        raise HTTPException(status_code=404, detail="文檔不存在或無權限刪除")
+    if not doc:
+        raise HTTPException(status_code=404, detail="文檔不存在")
     
-    # 嘗試重新建立用戶索引
-    index_status = "文檔已刪除"
+    # 刪除物理文件
+    file_path = Path(f"user_documents/user_{current_user.id}") / doc.filename
+    if file_path.exists():
+        try:
+            file_path.unlink()
+        except Exception as e:
+            logger.error(f"刪除文件失敗: {e}")
+    
+    # 從數據庫刪除記錄
+    delete_document(db, document_id, current_user.id)
+    
+    # 重建索引
+    index_status = "索引未更新"
     if user_kb_system is not None:
         try:
             user_kb_system.build_user_index(current_user.id)
             index_status = "文檔已刪除，AI 索引已更新"
         except Exception as e:
-            print(f"索引更新失敗: {e}")
+            logger.error(f"索引更新失敗: {e}")
             index_status = "文檔已刪除，但索引更新失敗"
     
     return {
