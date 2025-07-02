@@ -16,18 +16,20 @@ context = "."
 NODE_ENV = "production"
 PYTHON_ENV = "production"
 
-[run]
-# 容器端口映射
-port = 80
+# 應用設置
+PORT = "80"
+HOST = "0.0.0.0"
 
-# 健康檢查端點
-health_check = "/api/health"
+# 超時設置
+REQUEST_TIMEOUT = "300"
+BUILD_TIMEOUT = "1800"
 
-# 啟動超時（秒）
-start_timeout = 300
+# 內存和性能設置
+MEMORY_LIMIT = "2GB"
+CPU_LIMIT = "2"
 
-# 重啟策略
-restart_policy = "always"
+# 緩存和性能
+BUILD_CACHE = true
 
 # 環境變數
 [env]
@@ -35,10 +37,6 @@ restart_policy = "always"
 NODE_ENV = "production"
 PYTHONUNBUFFERED = "1"
 PYTHONDONTWRITEBYTECODE = "1"
-
-# 應用設置
-PORT = "80"
-HOST = "0.0.0.0"
 
 # API 配置
 EMBEDDING_MODEL = "BAAI/bge-base-zh"
@@ -147,4 +145,8 @@ deploy = true
 errors = true
 
 # 性能警告
-performance = true 
+performance = true
+
+[deploy]
+# 純後端 API 部署配置
+port = 8000 

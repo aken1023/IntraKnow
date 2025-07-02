@@ -1,5 +1,5 @@
-# 企業知識庫系統 - Zeabur 超輕量部署 Dockerfile
-# 修復 webpack 構建問題的版本
+# 企業知識庫系統 - Zeabur 全棧部署 Dockerfile
+# 修復 tailwindcss 缺失問題的版本
 
 FROM python:3.11-slim
 
@@ -35,37 +35,52 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 複製所有前端源文件
 COPY . .
 
-# 確保所有必要的配置文件存在
-RUN echo "檢查前端文件..." && \
-    ls -la && \
-    test -f package.json || echo "警告: package.json 缺失" && \
-    test -f next.config.mjs || echo "警告: next.config.mjs 缺失" && \
-    test -d app || echo "警告: app 目錄缺失" && \
-    test -d components || echo "警告: components 目錄缺失"
+# 運行依賴修復腳本
+RUN node fix-deps.js
 
-# 安裝前端依賴（包含開發依賴）
+# 清理可能的舊安裝
+RUN rm -rf node_modules package-lock.json .next
+
+# 配置 npm 並安裝所有依賴（包含 dev dependencies）
 RUN npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-retries 3 && \
     npm config set registry https://registry.npmjs.org/ && \
+    echo "安裝 npm 依賴..." && \
     npm install --legacy-peer-deps
 
-# 檢查並創建缺失的目錄和文件
-RUN mkdir -p app components public styles lib hooks && \
-    touch .env.local || true
+# 檢查關鍵模組是否存在
+RUN echo "檢查關鍵模組..." && \
+    test -d node_modules/tailwindcss || (echo "錯誤: tailwindcss 未安裝" && npm list tailwindcss) && \
+    test -d node_modules/next || (echo "錯誤: next 未安裝" && npm list next) && \
+    test -d node_modules/typescript || (echo "錯誤: typescript 未安裝" && npm list typescript)
 
-# 構建前端（添加調試信息）
-RUN echo "開始構建 Next.js..." && \
-    NODE_OPTIONS="--max-old-space-size=2048" npm run build || \
-    (echo "構建失敗，嘗試修復..." && \
-     rm -rf .next && \
-     NODE_ENV=development npm run build) || \
-    (echo "仍然失敗，跳過構建步驟..." && \
-     mkdir -p .next/static && \
-     echo '{"version":"fallback"}' > .next/build-manifest.json)
+# 檢查並創建必要的配置文件
+RUN echo "檢查配置文件..." && \
+    test -f tailwind.config.js || test -f tailwind.config.ts || (echo "警告: tailwind 配置文件缺失") && \
+    test -f next.config.mjs || test -f next.config.js || (echo "警告: next 配置文件缺失") && \
+    test -f tsconfig.json || (echo "警告: TypeScript 配置文件缺失")
 
-# 清理開發依賴
-RUN rm -rf node_modules && \
+# 顯示環境信息
+RUN echo "=== 構建環境信息 ===" && \
+    echo "Node.js: $(node --version)" && \
+    echo "npm: $(npm --version)" && \
+    echo "工作目錄: $(pwd)" && \
+    echo "主要依賴版本:" && \
+    npm list --depth=0 next tailwindcss typescript 2>/dev/null || echo "無法顯示部分依賴版本"
+
+# 構建前端（分步進行，便於調試）
+RUN echo "=== 開始 Next.js 構建 ===" && \
+    NODE_OPTIONS="--max-old-space-size=2048" npm run build
+
+# 檢查構建結果
+RUN echo "=== 檢查構建結果 ===" && \
+    test -d .next && echo "✅ .next 目錄已創建" || (echo "❌ 構建失敗" && exit 1) && \
+    ls -la .next/ || echo "無法列出 .next 內容"
+
+# 安裝生產依賴（保留構建結果）
+RUN echo "=== 切換到生產依賴 ===" && \
+    rm -rf node_modules && \
     npm ci --only=production --silent || npm install --only=production --legacy-peer-deps && \
     npm cache clean --force
 
@@ -144,7 +159,7 @@ startsecs=15' > /etc/supervisor/conf.d/supervisord.conf
 # 創建啟動腳本
 RUN printf '#!/bin/bash\n\
 set -e\n\
-echo "🚀 啟動 IntraKnow 系統..."\n\
+echo "🚀 啟動 IntraKnow 全棧系統..."\n\
 mkdir -p user_documents user_indexes logs\n\
 \n\
 # 初始化資料庫\n\
@@ -153,20 +168,14 @@ if [ -f "scripts/setup_knowledge_base.py" ]; then\n\
     python scripts/setup_knowledge_base.py || echo "⚠️ 資料庫初始化跳過"\n\
 fi\n\
 \n\
-# 檢查前端構建\n\
-if [ ! -d ".next" ]; then\n\
-    echo "⚠️ 前端未構建，嘗試運行構建..."\n\
-    npm run build || echo "❌ 前端構建失敗，將以開發模式運行"\n\
-fi\n\
-\n\
-echo "✅ 啟動服務..."\n\
+echo "✅ 啟動前後端服務..."\n\
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf' > /app/start.sh
 
 RUN chmod +x /app/start.sh
 
 EXPOSE 80
 
-# 寬鬆的健康檢查
+# 健康檢查
 HEALTHCHECK --interval=60s --timeout=15s --start-period=120s --retries=3 \
     CMD curl -f http://localhost:80/health || curl -f http://localhost:80/ || exit 1
 
