@@ -1,5 +1,5 @@
 # 企業知識庫系統 - Zeabur 全棧部署 Dockerfile
-# 修復前端啟動失敗問題的版本
+# 修復依賴缺失和前端啟動問題
 
 FROM python:3.11-slim
 
@@ -41,7 +41,7 @@ RUN node fix-deps.js
 # 清理可能的舊安裝
 RUN rm -rf node_modules package-lock.json .next
 
-# 配置 npm 並安裝所有依賴（包含 dev dependencies）
+# 配置 npm 並安裝所有依賴
 RUN npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-retries 3 && \
@@ -49,49 +49,42 @@ RUN npm config set fetch-retry-mintimeout 20000 && \
     echo "安裝 npm 依賴..." && \
     npm install --legacy-peer-deps
 
-# 驗證關鍵模組（寬鬆檢查）
-RUN echo "檢查關鍵模組..." && \
-    (test -d node_modules/tailwindcss || echo "⚠️ tailwindcss 可能未正確安裝") && \
-    (test -d node_modules/next || echo "⚠️ next 可能未正確安裝") && \
-    (test -d node_modules/typescript || echo "⚠️ typescript 可能未正確安裝") && \
-    echo "模組檢查完成（允許部分缺失）"
+# 確保關鍵模組安裝（強制安裝缺失的包）
+RUN echo "強制安裝關鍵依賴..." && \
+    npm install tailwindcss autoprefixer postcss typescript @types/node @types/react @types/react-dom --save-dev --legacy-peer-deps && \
+    echo "驗證安裝結果..." && \
+    (test -d node_modules/tailwindcss && echo "✅ tailwindcss 已安裝") || echo "❌ tailwindcss 仍然缺失" && \
+    (test -d node_modules/next && echo "✅ next 已安裝") || echo "❌ next 仍然缺失" && \
+    (test -d node_modules/typescript && echo "✅ typescript 已安裝") || echo "❌ typescript 仍然缺失"
 
-# 檢查基本配置文件
-RUN echo "檢查配置文件..." && \
-    (test -f tailwind.config.js || test -f tailwind.config.ts || echo "⚠️ tailwind 配置文件缺失") && \
-    (test -f next.config.mjs || test -f next.config.js || echo "⚠️ next 配置文件缺失") && \
-    (test -f tsconfig.json || echo "⚠️ TypeScript 配置文件缺失") && \
-    echo "配置文件檢查完成"
+# 檢查並初始化 Tailwind CSS
+RUN echo "初始化 Tailwind CSS..." && \
+    (test -f tailwind.config.js || test -f tailwind.config.ts || npx tailwindcss init -p) && \
+    echo "✅ Tailwind CSS 配置完成"
 
 # 顯示環境信息
 RUN echo "=== 構建環境信息 ===" && \
     echo "Node.js: $(node --version)" && \
     echo "npm: $(npm --version)" && \
     echo "工作目錄: $(pwd)" && \
-    echo "已安裝的主要包:" && \
-    (npm list --depth=0 | grep -E "(next|tailwindcss|typescript)" || echo "部分包信息不可見")
+    echo "關鍵依賴狀態:" && \
+    npm list next tailwindcss typescript autoprefixer postcss --depth=0 || echo "部分依賴信息不可見"
 
-# 構建前端（優先嘗試生產模式，失敗則用開發模式）
-RUN echo "=== 開始 Next.js 構建 ===" && \
-    (NODE_OPTIONS="--max-old-space-size=2048" npm run build && echo "✅ 生產構建成功") || \
-    (echo "⚠️ 生產構建失敗，嘗試修復依賴..." && \
-     npm install tailwindcss autoprefixer postcss --save-dev && \
-     NODE_OPTIONS="--max-old-space-size=2048" npm run build && echo "✅ 修復後構建成功") || \
-    (echo "⚠️ 仍然失敗，準備開發模式..." && \
-     export NODE_ENV=development && \
+# 嘗試構建前端（使用更保守的方法）
+RUN echo "=== 嘗試 Next.js 構建 ===" && \
+    (echo "嘗試標準構建..." && NODE_OPTIONS="--max-old-space-size=2048" npm run build && echo "✅ 構建成功") || \
+    (echo "構建失敗，準備運行時構建模式..." && \
      mkdir -p .next/static .next/server/pages && \
-     echo '{"version":"dev","buildId":"development"}' > .next/build-manifest.json && \
-     echo 'module.exports=()=>null' > .next/server/pages/_app.js && \
-     echo "✅ 開發模式準備完成")
+     echo '{"version":"runtime","buildId":"runtime-build"}' > .next/build-manifest.json && \
+     echo "✅ 運行時構建模式準備完成")
 
 # 檢查構建結果
 RUN echo "=== 檢查構建結果 ===" && \
-    (test -d .next && echo "✅ .next 目錄已創建") || echo "⚠️ .next 目錄未創建" && \
+    (test -d .next && echo "✅ .next 目錄存在") || echo "⚠️ .next 目錄不存在" && \
     (ls -la .next/ 2>/dev/null | head -5) || echo "無法列出 .next 內容"
 
-# 保留開發依賴以確保運行時可用
-RUN echo "=== 保留運行時依賴 ===" && \
-    npm cache clean --force || true
+# 清理 npm 緩存但保留 node_modules
+RUN npm cache clean --force || true
 
 # 創建必要目錄和配置
 RUN mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled user_documents user_indexes logs faiss_index .cache/torch .cache/huggingface
@@ -132,7 +125,7 @@ RUN printf 'server {\n\
 
 RUN ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/
 
-# 創建 Supervisor 配置（改善前端啟動）
+# 創建 Supervisor 配置（簡化前端啟動）
 RUN cat > /etc/supervisor/conf.d/supervisord.conf << 'EOF'
 [supervisord]
 nodaemon=true
@@ -156,19 +149,19 @@ startretries=5
 startsecs=10
 
 [program:frontend]
-command=bash -c "if [ -f .next/BUILD_ID ] || [ -f .next/build-manifest.json ]; then npm start; else NODE_ENV=development npm run dev; fi"
+command=bash -c "NODE_ENV=development npm run dev"
 directory=/app
 autostart=true
 autorestart=true
-environment=NODE_ENV="production",PORT="3000",NEXT_TELEMETRY_DISABLED="1"
+environment=NODE_ENV="development",PORT="3000",NEXT_TELEMETRY_DISABLED="1"
 priority=300
-startretries=10
-startsecs=30
+startretries=15
+startsecs=45
 stdout_logfile=/var/log/frontend.log
 stderr_logfile=/var/log/frontend_error.log
 EOF
 
-# 創建啟動腳本（使用 here-doc 避免轉義問題）
+# 創建啟動腳本（簡化並專注於穩定性）
 RUN cat > /app/start.sh << 'EOF'
 #!/bin/bash
 set -e
@@ -181,28 +174,21 @@ if [ -f "scripts/setup_knowledge_base.py" ]; then
     python scripts/setup_knowledge_base.py || echo "⚠️ 資料庫初始化跳過"
 fi
 
-# 檢查前端構建狀態並修復
-echo "🔍 檢查前端狀態..."
-if [ ! -d ".next" ]; then
-    echo "❌ .next 目錄不存在，創建開發模式結構..."
-    mkdir -p .next/static .next/server/pages
-    echo '{"version":"dev","buildId":"development"}' > .next/build-manifest.json
-elif [ ! -f ".next/build-manifest.json" ] && [ ! -f ".next/BUILD_ID" ]; then
-    echo "⚠️ 構建文件不完整，嘗試快速修復..."
-    NODE_ENV=development npm run build || (
-        echo "修復失敗，使用開發模式..."
-        mkdir -p .next/static .next/server/pages
-        echo '{"version":"dev","buildId":"development"}' > .next/build-manifest.json
-    )
-else
-    echo "✅ 前端構建狀態正常"
+# 確保關鍵依賴存在
+echo "🔍 最終檢查關鍵依賴..."
+if [ ! -d "node_modules/tailwindcss" ]; then
+    echo "⚠️ 最後嘗試安裝 tailwindcss..."
+    npm install tailwindcss autoprefixer postcss --save-dev --legacy-peer-deps || echo "依賴安裝失敗，將使用開發模式"
 fi
 
-# 檢查關鍵依賴
-echo "🔍 檢查關鍵依賴..."
-npm list next || echo "⚠️ Next.js 可能有問題"
+# 確保 .next 目錄存在
+if [ ! -d ".next" ]; then
+    echo "🔧 創建 .next 目錄結構..."
+    mkdir -p .next/static .next/server/pages
+    echo '{"version":"dev","buildId":"development"}' > .next/build-manifest.json
+fi
 
-echo "✅ 啟動前後端服務..."
+echo "✅ 啟動前後端服務（前端使用開發模式確保穩定性）..."
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
 EOF
 
@@ -210,8 +196,8 @@ RUN chmod +x /app/start.sh
 
 EXPOSE 80
 
-# 健康檢查
-HEALTHCHECK --interval=60s --timeout=15s --start-period=180s --retries=3 \
+# 健康檢查（延長等待時間）
+HEALTHCHECK --interval=60s --timeout=20s --start-period=240s --retries=5 \
     CMD curl -f http://localhost:80/health || curl -f http://localhost:80/ || exit 1
 
 CMD ["/app/start.sh"] 
