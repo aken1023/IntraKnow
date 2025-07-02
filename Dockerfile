@@ -31,7 +31,7 @@ RUN pip install --no-cache-dir --upgrade pip
 COPY scripts/requirements-minimal.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 複製前端文件並構建
+# 複製前端文件
 COPY package*.json ./
 COPY app/ ./app/
 COPY components/ ./components/
@@ -40,10 +40,19 @@ COPY *.config.* ./
 COPY tailwind.config.js ./
 COPY tsconfig.json ./
 
-# 安裝前端依賴並構建（一步完成）
-RUN npm ci --only=production --silent \
-    && npm run build \
-    && npm cache clean --force
+# 安裝前端依賴（包含開發依賴用於構建）
+RUN npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-retries 3 && \
+    npm install --legacy-peer-deps
+
+# 構建前端
+RUN npm run build
+
+# 重新安裝只有生產依賴並清理
+RUN rm -rf node_modules && \
+    npm ci --only=production --silent && \
+    npm cache clean --force
 
 # 複製後端代碼
 COPY scripts/ ./scripts/
