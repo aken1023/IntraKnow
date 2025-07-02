@@ -5,9 +5,27 @@
 FROM node:18-slim as frontend-builder
 
 WORKDIR /app
+
+# 複製前端相關文件
 COPY package*.json ./
+COPY next.config.mjs ./
+COPY tsconfig.json ./
+COPY tailwind.config.* ./
+COPY postcss.config.* ./
+COPY components.json ./
+
+# 安裝前端依賴
 RUN npm install --legacy-peer-deps
-COPY . .
+
+# 複製前端源代碼
+COPY app/ ./app/
+COPY components/ ./components/
+COPY lib/ ./lib/
+COPY hooks/ ./hooks/
+COPY styles/ ./styles/
+COPY public/ ./public/
+
+# 構建前端
 RUN npm run build
 
 # 第二階段：運行時環境
