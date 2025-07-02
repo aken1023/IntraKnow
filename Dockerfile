@@ -133,74 +133,78 @@ RUN printf 'server {\n\
 RUN ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/
 
 # 創建 Supervisor 配置（改善前端啟動）
-RUN printf '[supervisord]\n\
-nodaemon=true\n\
-user=root\n\
-loglevel=info\n\
-\n\
-[program:nginx]\n\
-command=nginx -g "daemon off;"\n\
-autostart=true\n\
-autorestart=true\n\
-priority=100\n\
-\n\
-[program:backend]\n\
-command=python scripts/auth_api_server.py\n\
-directory=/app\n\
-autostart=true\n\
-autorestart=true\n\
-environment=PYTHONPATH="/app",PYTHONUNBUFFERED="1"\n\
-priority=200\n\
-startretries=5\n\
-startsecs=10\n\
-\n\
-[program:frontend]\n\
-command=bash -c "if [ -f .next/BUILD_ID ] || [ -f .next/build-manifest.json ]; then npm start; else NODE_ENV=development npm run dev; fi"\n\
-directory=/app\n\
-autostart=true\n\
-autorestart=true\n\
-environment=NODE_ENV="production",PORT="3000",NEXT_TELEMETRY_DISABLED="1"\n\
-priority=300\n\
-startretries=10\n\
-startsecs=30\n\
-stdout_logfile=/var/log/frontend.log\n\
-stderr_logfile=/var/log/frontend_error.log' > /etc/supervisor/conf.d/supervisord.conf
+RUN cat > /etc/supervisor/conf.d/supervisord.conf << 'EOF'
+[supervisord]
+nodaemon=true
+user=root
+loglevel=info
 
-# 創建啟動腳本（改善前端診斷）
-RUN printf '#!/bin/bash\n\
-set -e\n\
-echo "🚀 啟動 IntraKnow 全棧系統..."\n\
-mkdir -p user_documents user_indexes logs\n\
-\n\
-# 初始化資料庫\n\
-if [ -f "scripts/setup_knowledge_base.py" ]; then\n\
-    echo "📊 初始化知識庫..."\n\
-    python scripts/setup_knowledge_base.py || echo "⚠️ 資料庫初始化跳過"\n\
-fi\n\
-\n\
-# 檢查前端構建狀態並修復\n\
-echo "🔍 檢查前端狀態..."\n\
-if [ ! -d ".next" ]; then\n\
-    echo "❌ .next 目錄不存在，創建開發模式結構..."\n\
-    mkdir -p .next/static .next/server/pages\n\
-    echo \'{"version":"dev","buildId":"development"}\' > .next/build-manifest.json\n\
-elif [ ! -f ".next/build-manifest.json" ] && [ ! -f ".next/BUILD_ID" ]; then\n\
-    echo "⚠️ 構建文件不完整，嘗試快速修復..."\n\
-    NODE_ENV=development npm run build || (\n\
-        echo "修復失敗，使用開發模式..."\n\
-        mkdir -p .next/static .next/server/pages\n\
-        echo \'{"version":"dev","buildId":"development"}\' > .next/build-manifest.json\n\
-    )\n\
-else\n\
-    echo "✅ 前端構建狀態正常"\n\
-fi\n\
-\n\
-# 檢查關鍵依賴\n\
-echo "🔍 檢查關鍵依賴..."\n\
-npm list next || echo "⚠️ Next.js 可能有問題"\n\
-\n\
-echo "✅ 啟動前後端服務..."\n\
-exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf' > /app/start.sh
+[program:nginx]
+command=nginx -g "daemon off;"
+autostart=true
+autorestart=true
+priority=100
+
+[program:backend]
+command=python scripts/auth_api_server.py
+directory=/app
+autostart=true
+autorestart=true
+environment=PYTHONPATH="/app",PYTHONUNBUFFERED="1"
+priority=200
+startretries=5
+startsecs=10
+
+[program:frontend]
+command=bash -c "if [ -f .next/BUILD_ID ] || [ -f .next/build-manifest.json ]; then npm start; else NODE_ENV=development npm run dev; fi"
+directory=/app
+autostart=true
+autorestart=true
+environment=NODE_ENV="production",PORT="3000",NEXT_TELEMETRY_DISABLED="1"
+priority=300
+startretries=10
+startsecs=30
+stdout_logfile=/var/log/frontend.log
+stderr_logfile=/var/log/frontend_error.log
+EOF
+
+# 創建啟動腳本（使用 here-doc 避免轉義問題）
+RUN cat > /app/start.sh << 'EOF'
+#!/bin/bash
+set -e
+echo "🚀 啟動 IntraKnow 全棧系統..."
+mkdir -p user_documents user_indexes logs
+
+# 初始化資料庫
+if [ -f "scripts/setup_knowledge_base.py" ]; then
+    echo "📊 初始化知識庫..."
+    python scripts/setup_knowledge_base.py || echo "⚠️ 資料庫初始化跳過"
+fi
+
+# 檢查前端構建狀態並修復
+echo "🔍 檢查前端狀態..."
+if [ ! -d ".next" ]; then
+    echo "❌ .next 目錄不存在，創建開發模式結構..."
+    mkdir -p .next/static .next/server/pages
+    echo '{"version":"dev","buildId":"development"}' > .next/build-manifest.json
+elif [ ! -f ".next/build-manifest.json" ] && [ ! -f ".next/BUILD_ID" ]; then
+    echo "⚠️ 構建文件不完整，嘗試快速修復..."
+    NODE_ENV=development npm run build || (
+        echo "修復失敗，使用開發模式..."
+        mkdir -p .next/static .next/server/pages
+        echo '{"version":"dev","buildId":"development"}' > .next/build-manifest.json
+    )
+else
+    echo "✅ 前端構建狀態正常"
+fi
+
+# 檢查關鍵依賴
+echo "🔍 檢查關鍵依賴..."
+npm list next || echo "⚠️ Next.js 可能有問題"
+
+echo "✅ 啟動前後端服務..."
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+EOF
 
 RUN chmod +x /app/start.sh
 
