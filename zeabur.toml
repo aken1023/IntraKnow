@@ -28,7 +28,7 @@ echo "✅ 依賴安裝完成"
 
 [run]
 # 啟動命令
-start_command = "python scripts/main.py"
+start_command = "python start_zeabur_server.py"
 
 # 工作目錄
 working_directory = "."
