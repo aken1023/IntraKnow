@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   title: '企業知識庫系統',
   description: '使用 LlamaIndex 和 FAISS 構建的企業級知識檢索系統',
   generator: 'Next.js',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'),
 }
 
 export const viewport: Viewport = {
@@ -48,10 +48,12 @@ export default function RootLayout({
         fontSans.variable,
         fontSerif.variable
       )}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <AuthProvider>
             <ViewportProvider>
-              {children}
+              <main className="relative flex min-h-screen flex-col">
+                {children}
+              </main>
             </ViewportProvider>
           </AuthProvider>
         </ThemeProvider>

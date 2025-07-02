@@ -1,128 +1,210 @@
-# 🐳 Zeabur Docker 部署指南
+# IntraKnow 企業知識庫系統 - Zeabur Docker 部署指南
 
-Zeabur 檢測到你的項目有 `Dockerfile`，所以會使用 Docker 方式部署。這是**推薦的部署方式**。
+## 📋 概述
 
-## ✅ 已修復的問題
+本指南將幫助您在 Zeabur 平台上使用 Docker 部署 IntraKnow 企業知識庫系統，包含前端（Next.js）和後端（FastAPI）的完整整合。
 
-我已經修正了 `Dockerfile`，現在它會：
+## 🏗️ 架構說明
 
-1. ✅ 使用 Python 3.11
-2. ✅ 安裝正確的依賴 (`requirements-zeabur.txt`)
-3. ✅ 啟動認證版 API (`scripts/main.py`)
-4. ✅ 移除舊版 API 服務器
-5. ✅ 創建必要的目錄結構
-6. ✅ 設置正確的環境變數
+### 部署架構
+```
+Internet → Zeabur Load Balancer → Nginx (Port 80) → {
+    Frontend: Next.js (Port 3000)
+    Backend:  FastAPI (Port 8000)
+}
+```
+
+### 技術棧
+- **前端**: Next.js 14 + Tailwind CSS + TypeScript
+- **後端**: FastAPI + SQLAlchemy + FAISS
+- **代理**: Nginx
+- **進程管理**: Supervisor
+- **容器**: Docker (多階段構建)
 
 ## 🚀 部署步驟
 
-### 1. 推送代碼到 Git
+### 1. 準備代碼
+確保您的代碼包含以下關鍵文件：
+```
+├── Dockerfile               # Docker 構建配置
+├── nginx.conf              # Nginx 代理配置
+├── supervisord.conf        # 進程管理配置
+├── start.sh                # 啟動腳本
+├── zeabur.toml            # Zeabur 部署配置
+├── package.json           # Node.js 依賴
+└── scripts/
+    └── requirements-zeabur-fixed.txt  # Python 依賴
+```
+
+### 2. 登錄 Zeabur
+1. 訪問 [Zeabur](https://zeabur.com)
+2. 使用 GitHub 帳號登錄
+3. 創建新的專案
+
+### 3. 部署應用
+1. 點擊「Add Service」
+2. 選擇「Git Repository」
+3. 連接您的 GitHub 儲存庫
+4. Zeabur 會自動檢測到 `zeabur.toml` 配置文件
+5. 點擊「Deploy」開始部署
+
+### 4. 配置環境變數（可選）
+在 Zeabur 控制台中設置以下環境變數：
+```
+NODE_ENV=production
+PYTHONUNBUFFERED=1
+EMBEDDING_MODEL=BAAI/bge-base-zh
+MODEL_NAME=deepseek-chat
+NEXT_PUBLIC_API_URL=/api
+```
+
+## 📁 關鍵配置文件說明
+
+### Dockerfile
+- **多階段構建**: 先構建前端，再組裝運行環境
+- **系統依賴**: Python 3.11 + Node.js 18 + Nginx + Supervisor
+- **AI 模型**: PyTorch CPU 版本，適合雲端部署
+- **端口**: 對外暴露 80 端口
+
+### nginx.conf
+- **前端代理**: `/` → `localhost:3000`
+- **API 代理**: `/api/` → `localhost:8000/api/`
+- **認證代理**: `/auth/` → `localhost:8000/auth/`
+- **健康檢查**: `/health` → `localhost:8000/health`
+
+### supervisord.conf
+管理三個服務的啟動順序：
+1. **Nginx** (優先級 100)
+2. **Backend** (優先級 200)
+3. **Frontend** (優先級 300)
+
+### zeabur.toml
+- **構建類型**: Docker
+- **資源配置**: 2GB RAM, 2 CPU, 10GB 磁盤
+- **健康檢查**: `/api/health`
+- **自動擴展**: 1-2 實例
+
+## 🔧 本地測試
+
+在部署到 Zeabur 之前，建議先在本地測試 Docker 容器：
+
 ```bash
-git add .
-git commit -m "修復 Dockerfile 使用認證版 API"
-git push
+# 構建鏡像
+docker build -t intraknow .
+
+# 運行容器
+docker run -p 80:80 intraknow
+
+# 測試服務
+curl http://localhost:80/api/health
+curl http://localhost:80/
 ```
 
-### 2. Zeabur 會自動重新部署
-- Zeabur 檢測到代碼變更後會自動觸發重新部署
-- 這次會使用修正後的 Dockerfile
+## 📊 監控和維護
 
-### 3. 檢查部署日誌
-在 Zeabur 控制面板中查看部署日誌，你應該會看到：
-```
-🚀 LlamaIndex FAISS 知識庫系統 - Zeabur 部署
-✓ 使用認證版 API 服務器: auth_api_server.py
-✓ 成功導入應用: 企業知識庫 API 服務運行中 (支持用戶認證)
-✓ 應用版本: 2.0.0
-```
+### 健康檢查
+- **端點**: `/api/health`
+- **間隔**: 30 秒
+- **超時**: 10 秒
+- **重試**: 3 次
 
-### 4. 測試 API 端點
-部署完成後測試：
+### 日誌查看
+在 Zeabur 控制台中可以查看：
+- 構建日誌
+- 運行時日誌
+- 錯誤日誌
+
+### 資源監控
+- CPU 使用率
+- 記憶體使用率
+- 網絡流量
+- 磁盤使用量
+
+## 🛠️ 故障排除
+
+### 常見問題
+
+#### 1. 構建失敗
+**症狀**: Docker 構建過程中失敗
+**解決方案**:
+- 檢查 `Dockerfile` 語法
+- 確認所有依賴文件存在
+- 查看構建日誌中的具體錯誤
+
+#### 2. 服務無法啟動
+**症狀**: 容器啟動後立即退出
+**解決方案**:
+- 檢查 `start.sh` 腳本權限
+- 驗證 `supervisord.conf` 配置
+- 查看容器日誌
+
+#### 3. 前端無法訪問
+**症狀**: 可以訪問 API 但前端頁面空白
+**解決方案**:
+- 檢查 Next.js 構建是否成功
+- 確認 Nginx 代理配置正確
+- 驗證環境變數設置
+
+#### 4. API 請求失敗
+**症狀**: 前端無法調用後端 API
+**解決方案**:
+- 檢查 Nginx 代理路徑配置
+- 確認後端服務正在運行
+- 驗證 CORS 設置
+
+### 調試命令
+
 ```bash
-curl https://your-zeabur-app.zeabur.app/health
+# 進入運行中的容器
+docker exec -it <container_id> /bin/bash
+
+# 查看服務狀態
+supervisorctl status
+
+# 重啟特定服務
+supervisorctl restart backend
+supervisorctl restart frontend
+supervisorctl restart nginx
+
+# 查看日誌
+tail -f /var/log/backend_error.log
+tail -f /var/log/frontend_error.log
+tail -f /var/log/nginx_error.log
 ```
 
-應該返回：
-```json
-{
-  "status": "healthy",
-  "timestamp": "2024-..."
-}
-```
+## 🔄 更新部署
 
-測試根端點：
-```bash
-curl https://your-zeabur-app.zeabur.app/
-```
+1. 推送代碼到 GitHub
+2. Zeabur 會自動觸發重新部署
+3. 監控部署狀態
+4. 驗證新版本功能
 
-應該返回：
-```json
-{
-  "message": "企業知識庫 API 服務運行中 (支持用戶認證)",
-  "version": "2.0.0"
-}
-```
+## 📈 性能優化
 
-## 🔧 環境變數配置
+### 建議配置
+- **實例數**: 根據流量調整（1-2 個實例）
+- **資源分配**: 2GB RAM, 2 CPU 核心
+- **緩存策略**: 利用 Nginx 靜態文件緩存
+- **數據庫**: 使用持久化存儲
 
-你的 Zeabur 環境變數設置是正確的：
+### 擴展選項
+- 增加實例數量應對高流量
+- 升級資源配置提升性能
+- 添加 CDN 加速靜態資源
+- 使用外部數據庫服務
 
-```
-ALLOW_ALL_ORIGINS = true
-DEEPSEEK_API_KEY = sk-888548c4041b4699b8bcf331f391b73a
-EMBEDDING_MODEL = BAAI/bge-base-zh
-FRONTEND_URL = https://llamaindex-faiss-system.vercel.app
-MODEL_NAME = deepseek-chat
-```
+## 📞 支援
 
-**注意：移除 `NEXT_PUBLIC_API_URL`**，這個應該在 Vercel 前端設置。
+如果在部署過程中遇到問題：
+1. 查看 Zeabur 控制台的日誌
+2. 檢查本文檔的故障排除部分
+3. 確認所有配置文件都已正確設置
+4. 在本地環境中重現和測試
 
-## 🆚 Docker vs zeabur.toml
+## 📝 更新日誌
 
-| 特性 | Docker 部署 | zeabur.toml 部署 |
-|------|-------------|------------------|
-| **推薦程度** | ⭐⭐⭐⭐⭐ 推薦 | ⭐⭐⭐ 可用 |
-| **構建速度** | 較慢（需要構建映像） | 較快 |
-| **可重現性** | 非常好 | 好 |
-| **依賴控制** | 完全控制 | 依賴 Zeabur 環境 |
-| **調試友好** | 更容易調試 | 較難調試 |
-| **部署穩定性** | 更穩定 | 可能有環境差異 |
-
-## 🔄 如果想切換到 zeabur.toml 部署
-
-如果你想使用 `zeabur.toml` 而不是 Docker：
-
-1. 創建 `.zeaburignore` 文件（已包含在項目中）
-2. 重新部署
-
-但我**建議繼續使用 Docker 部署**，因為：
-- 更穩定可靠
-- 環境完全受控
-- 依賴版本鎖定
-- 更容易排查問題
-
-## 🎯 驗證部署成功
-
-部署成功的標誌：
-
-1. ✅ Zeabur 部署日誌顯示成功
-2. ✅ `/health` 端點返回正確響應
-3. ✅ `/` 端點顯示認證版本信息
-4. ✅ 前端可以正常連接後端
-5. ✅ 用戶註冊/登入功能正常
-
-## 🆘 如果還有問題
-
-如果部署後仍然顯示舊版 API 響應：
-
-1. 檢查 Zeabur 部署日誌
-2. 確認使用的是新的 Dockerfile
-3. 嘗試手動觸發重新部署
-4. 檢查環境變數設置
-
-預期的成功響應：
-```json
-{
-  "message": "企業知識庫 API 服務運行中 (支持用戶認證)",
-  "version": "2.0.0"
-}
-``` 
+- **v2.0.0**: 初始 Docker 部署配置
+- 前後端整合部署
+- Nginx 代理配置
+- Supervisor 進程管理
+- 完整的健康檢查和監控 

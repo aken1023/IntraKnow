@@ -1,125 +1,150 @@
-# Zeabur 配置文件 - Python 原生部署
-# 企業知識庫系統（LlamaIndex + FAISS + 用戶認證）
+# Zeabur 配置文件 - Docker 部署
+# 企業知識庫系統（前後端整合）
 
 [build]
-# 指定構建類型為 Python
-type = "python"
+# 指定構建類型為 Docker
+type = "docker"
 
-# 指定 Python 版本
-python_version = "3.11"
+# Docker 配置
+dockerfile = "Dockerfile"
 
-# 指定依賴文件（會依序嘗試）
-requirements = [
-    "scripts/requirements-api-only.txt", # 優先使用純 API 版本（最穩定）
-    "scripts/requirements-minimal.txt",  # 備用最小化依賴
-    "scripts/requirements-zeabur.txt",   # 備用完整依賴
-    "scripts/requirements.txt"           # 最後備用
-]
+# 構建上下文
+context = "."
 
-# 構建命令（可選）
-build_command = """
-echo "=== Zeabur 原生 Python 部署 ===" &&
-echo "📂 當前目錄: $(pwd)" &&
-echo "🐍 Python 版本: $(python --version)" &&
-echo "📦 安裝依賴..." &&
-cd scripts &&
-echo "✅ 依賴安裝完成"
-"""
+# 構建參數
+[build.args]
+NODE_ENV = "production"
+PYTHON_ENV = "production"
 
 [run]
-# 啟動命令
-start_command = "python start_zeabur_server.py"
+# 容器端口映射
+port = 80
 
-# 工作目錄
-working_directory = "."
-
-# 暴露端口
-port = 8000
-
-# 環境變數
-[env]
-# Python 相關
-PYTHONPATH = "/opt/zeabur/src"
-PYTHONUNBUFFERED = "1"
-PYTHONDONTWRITEBYTECODE = "1"
-
-# 應用相關
-PORT = "8000"
-HOST = "0.0.0.0"
-
-# 運行時設置
-[runtime]
-# 健康檢查
-health_check = "/health"
+# 健康檢查端點
+health_check = "/api/health"
 
 # 啟動超時（秒）
 start_timeout = 300
 
-# 記憶體限制（MB）
-memory_limit = 1024
-
-# CPU 限制
-cpu_limit = 1.0
-
 # 重啟策略
 restart_policy = "always"
 
-[services.backend]
+# 環境變數
+[env]
+# 生產環境設置
+NODE_ENV = "production"
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
+
+# 應用設置
+PORT = "80"
+HOST = "0.0.0.0"
+
+# API 配置
+EMBEDDING_MODEL = "BAAI/bge-base-zh"
+MODEL_NAME = "deepseek-chat"
+
+# 前端配置
+NEXT_PUBLIC_API_URL = "/api"
+
+# 資源限制
+[resources]
+# 記憶體限制（MB）
+memory = 2048
+
+# CPU 限制
+cpu = 2.0
+
+# 磁盤空間（GB）
+disk = 10
+
+# 服務配置
+[services.app]
 # 服務名稱
-name = "llamaindex-knowledge-base"
+name = "intraknow-fullstack"
 
 # 服務描述
-description = "企業知識庫系統 - 支持用戶認證和AI模型管理"
+description = "IntraKnow 企業知識庫系統 - 前後端整合版"
 
 # 版本
 version = "2.0.0"
 
-# 區域偏好
-regions = ["hkg", "nrt", "sin"]
+# 區域偏好（選擇亞洲地區以獲得更好的性能）
+regions = ["hkg", "nrt", "sin", "syd"]
 
 # 自動擴展設置
-[services.backend.scaling]
+[services.app.scaling]
 min_instances = 1
-max_instances = 3
+max_instances = 2
 target_cpu = 70
-
-# 日誌設置
-[logging]
-level = "INFO"
-format = "json"
+target_memory = 80
 
 # 持久化存儲配置
-[storage]
+[volumes]
 # 用戶文檔存儲
 user_documents = {
-    path = "user_documents",
-    type = "persistent",
+    mount_path = "/app/user_documents",
     size = "5GB"
 }
 
-# 用戶索引存儲  
+# 用戶索引存儲
 user_indexes = {
-    path = "user_indexes", 
-    type = "persistent",
+    mount_path = "/app/user_indexes", 
     size = "2GB"
 }
 
 # 數據庫存儲
 database = {
-    path = "knowledge_base.db",
-    type = "persistent", 
+    mount_path = "/app/knowledge_base.db",
     size = "1GB"
 }
 
 # 日誌存儲
 logs = {
-    path = "logs",
-    type = "temporary",
-    size = "500MB"
+    mount_path = "/app/logs",
+    size = "1GB"
 }
 
-# 開發模式設置
-[dev]
-# 開發時的環境變數
-auto_reload = true
-debug = true 
+# 網絡配置
+[network]
+# 自定義域名（可選）
+# domains = ["your-domain.com"]
+
+# HTTPS 設置
+https = true
+
+# 監控和日誌
+[monitoring]
+# 啟用監控
+enabled = true
+
+# 日誌級別
+log_level = "info"
+
+# 性能監控
+metrics = true
+
+# 錯誤追蹤
+error_tracking = true
+
+# 備份配置
+[backup]
+# 啟用自動備份
+enabled = true
+
+# 備份頻率（天）
+frequency = 7
+
+# 保留備份數量
+retention = 4
+
+# 通知設置
+[notifications]
+# 部署通知
+deploy = true
+
+# 錯誤通知
+errors = true
+
+# 性能警告
+performance = true 

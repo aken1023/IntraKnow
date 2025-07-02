@@ -60,7 +60,7 @@ def check_frontend_dependencies():
     if not Path("node_modules").exists():
         print("[安裝] 正在安裝前端依賴...")
         try:
-            subprocess.run(["npm", "install"], check=True)
+            subprocess.run(["npm", "install", "--legacy-peer-deps"], check=True)
             print("[成功] 前端依賴安裝完成")
         except subprocess.CalledProcessError:
             print("[錯誤] 前端依賴安裝失敗")
@@ -70,27 +70,31 @@ def check_frontend_dependencies():
     return True
 
 def start_backend():
-    """啟動後端服務"""
+    """啟動後端服務 - scripts/auth_api_server.py"""
     print("[後端] 正在啟動 API 服務器...")
     try:
         # 啟動後端
         backend_process = subprocess.Popen(
             [sys.executable, "scripts/auth_api_server.py"],
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1
+            bufsize=1,
+            universal_newlines=True
         )
         processes.append(backend_process)
         
         # 監控後端輸出的線程
         def monitor_backend():
             try:
-                for line in backend_process.stdout:
+                for line in iter(backend_process.stdout.readline, ''):
                     if line.strip():
                         print(f"[API] {line.strip()}")
-            except:
-                pass
+                        # 檢查啟動成功的標誌
+                        if "Uvicorn running on" in line:
+                            print("[成功] 後端 API 服務器已啟動")
+            except Exception as e:
+                print(f"[錯誤] 監控後端輸出時發生錯誤: {e}")
         
         backend_thread = threading.Thread(target=monitor_backend, daemon=True)
         backend_thread.start()
@@ -101,7 +105,7 @@ def start_backend():
         return None
 
 def start_frontend():
-    """啟動前端服務"""
+    """啟動前端服務 - npm run dev"""
     print("[前端] 正在啟動 Next.js 應用...")
     try:
         # 設置環境變量
@@ -121,21 +125,27 @@ def start_frontend():
             cmd,
             env=env,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1
+            bufsize=1,
+            universal_newlines=True
         )
         processes.append(frontend_process)
         
         # 監控前端輸出的線程
         def monitor_frontend():
             try:
-                for line in frontend_process.stdout:
+                for line in iter(frontend_process.stdout.readline, ''):
                     if line.strip():
-                        if "ready" in line.lower() or "local:" in line.lower():
+                        # 只顯示重要的前端信息
+                        if any(keyword in line.lower() for keyword in 
+                               ["ready", "local:", "compiled", "error", "warn"]):
                             print(f"[Next.js] {line.strip()}")
-            except Exception:
-                pass
+                            # 檢查啟動成功的標誌
+                            if "Ready in" in line or "Local:" in line:
+                                print("[成功] 前端 Next.js 應用已啟動")
+            except Exception as e:
+                print(f"[錯誤] 監控前端輸出時發生錯誤: {e}")
         
         frontend_thread = threading.Thread(target=monitor_frontend, daemon=True)
         frontend_thread.start()
@@ -168,7 +178,7 @@ def display_system_info():
     print("\n" + "=" * 60)
     print(" " * 20 + "系統已成功啟動")
     print("=" * 60)
-    print(f"前端應用: http://localhost:3000")
+    print(f"前端應用: http://localhost:3001")
     print(f"後端 API: http://localhost:8000")
     print(f"API 文檔: http://localhost:8000/docs")
     print()
@@ -182,6 +192,25 @@ def display_system_info():
     print()
     print("[提示] 按 Ctrl+C 停止所有服務")
     print("[提示] 稍候將自動打開瀏覽器...")
+
+def wait_for_service(url, service_name, timeout=30):
+    """等待服務啟動"""
+    import urllib.request
+    import urllib.error
+    
+    print(f"[等待] {service_name}服務啟動中...")
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        try:
+            urllib.request.urlopen(url, timeout=1)
+            print(f"[成功] {service_name}服務已就緒")
+            return True
+        except:
+            time.sleep(1)
+    
+    print(f"[警告] {service_name}服務可能未完全啟動")
+    return False
 
 def main():
     """主函數"""
@@ -217,8 +246,7 @@ def main():
             sys.exit(1)
         
         # 等待後端啟動
-        print("[等待] 後端服務啟動中...")
-        time.sleep(5)
+        wait_for_service("http://localhost:8000", "後端")
         
         # 啟動前端
         frontend_process = start_frontend()
@@ -228,8 +256,7 @@ def main():
             sys.exit(1)
         
         # 等待前端啟動
-        print("[等待] 前端服務啟動中...")
-        time.sleep(8)
+        wait_for_service("http://localhost:3001", "前端")
         
         # 顯示系統信息
         display_system_info()
@@ -237,10 +264,10 @@ def main():
         # 自動打開瀏覽器
         try:
             time.sleep(2)
-            webbrowser.open("http://localhost:3000")
+            webbrowser.open("http://localhost:3001")
             print("[瀏覽器] 已自動打開前端應用")
         except:
-            print("[提示] 請手動打開瀏覽器訪問 http://localhost:3000")
+            print("[提示] 請手動打開瀏覽器訪問 http://localhost:3001")
         
         # 主循環 - 監控服務狀態
         try:
