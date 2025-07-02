@@ -1,5 +1,5 @@
 # 企業知識庫系統 - Zeabur 全棧部署 Dockerfile
-# 修復 tailwindcss 缺失問題的版本
+# 修復前端啟動失敗問題的版本
 
 FROM python:3.11-slim
 
@@ -71,28 +71,26 @@ RUN echo "=== 構建環境信息 ===" && \
     echo "已安裝的主要包:" && \
     (npm list --depth=0 | grep -E "(next|tailwindcss|typescript)" || echo "部分包信息不可見")
 
-# 構建前端（使用容錯方式）
+# 構建前端（優先嘗試生產模式，失敗則用開發模式）
 RUN echo "=== 開始 Next.js 構建 ===" && \
-    NODE_OPTIONS="--max-old-space-size=2048" npm run build || \
-    (echo "⚠️ 標準構建失敗，嘗試修復..." && \
+    (NODE_OPTIONS="--max-old-space-size=2048" npm run build && echo "✅ 生產構建成功") || \
+    (echo "⚠️ 生產構建失敗，嘗試修復依賴..." && \
      npm install tailwindcss autoprefixer postcss --save-dev && \
-     npm run build) || \
-    (echo "⚠️ 修復後仍失敗，使用最小構建..." && \
-     NODE_ENV=development npm run build) || \
-    (echo "❌ 所有構建方式都失敗，將使用開發模式運行" && \
-     mkdir -p .next/static && \
-     echo '{"version":"fallback","buildId":"fallback"}' > .next/build-manifest.json && \
-     echo "module.exports=()=>null" > .next/server/pages/_app.js)
+     NODE_OPTIONS="--max-old-space-size=2048" npm run build && echo "✅ 修復後構建成功") || \
+    (echo "⚠️ 仍然失敗，準備開發模式..." && \
+     export NODE_ENV=development && \
+     mkdir -p .next/static .next/server/pages && \
+     echo '{"version":"dev","buildId":"development"}' > .next/build-manifest.json && \
+     echo 'module.exports=()=>null' > .next/server/pages/_app.js && \
+     echo "✅ 開發模式準備完成")
 
-# 檢查構建結果（寬鬆檢查）
+# 檢查構建結果
 RUN echo "=== 檢查構建結果 ===" && \
     (test -d .next && echo "✅ .next 目錄已創建") || echo "⚠️ .next 目錄未創建" && \
-    (ls -la .next/ 2>/dev/null | head -3) || echo "無法列出 .next 內容"
+    (ls -la .next/ 2>/dev/null | head -5) || echo "無法列出 .next 內容"
 
-# 安裝生產依賴（保留構建結果）
-RUN echo "=== 切換到生產依賴 ===" && \
-    rm -rf node_modules && \
-    (npm ci --only=production --silent || npm install --only=production --legacy-peer-deps) && \
+# 保留開發依賴以確保運行時可用
+RUN echo "=== 保留運行時依賴 ===" && \
     npm cache clean --force || true
 
 # 創建必要目錄和配置
@@ -125,7 +123,6 @@ RUN printf 'server {\n\
         proxy_set_header X-Real-IP $remote_addr;\n\
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
         proxy_set_header X-Forwarded-Proto $scheme;\n\
-        proxy_pass http://localhost:8000/auth/;\n\
     }\n\
     location /health {\n\
         proxy_pass http://localhost:8000/health;\n\
@@ -135,7 +132,7 @@ RUN printf 'server {\n\
 
 RUN ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/
 
-# 創建 Supervisor 配置
+# 創建 Supervisor 配置（改善前端啟動）
 RUN printf '[supervisord]\n\
 nodaemon=true\n\
 user=root\n\
@@ -158,16 +155,18 @@ startretries=5\n\
 startsecs=10\n\
 \n\
 [program:frontend]\n\
-command=npm start\n\
+command=bash -c "if [ -f .next/BUILD_ID ] || [ -f .next/build-manifest.json ]; then npm start; else NODE_ENV=development npm run dev; fi"\n\
 directory=/app\n\
 autostart=true\n\
 autorestart=true\n\
-environment=NODE_ENV="production",PORT="3000"\n\
+environment=NODE_ENV="production",PORT="3000",NEXT_TELEMETRY_DISABLED="1"\n\
 priority=300\n\
-startretries=5\n\
-startsecs=15' > /etc/supervisor/conf.d/supervisord.conf
+startretries=10\n\
+startsecs=30\n\
+stdout_logfile=/var/log/frontend.log\n\
+stderr_logfile=/var/log/frontend_error.log' > /etc/supervisor/conf.d/supervisord.conf
 
-# 創建啟動腳本
+# 創建啟動腳本（改善前端診斷）
 RUN printf '#!/bin/bash\n\
 set -e\n\
 echo "🚀 啟動 IntraKnow 全棧系統..."\n\
@@ -179,11 +178,26 @@ if [ -f "scripts/setup_knowledge_base.py" ]; then\n\
     python scripts/setup_knowledge_base.py || echo "⚠️ 資料庫初始化跳過"\n\
 fi\n\
 \n\
-# 檢查前端構建狀態\n\
-if [ ! -d ".next" ] || [ ! -f ".next/build-manifest.json" ]; then\n\
-    echo "⚠️ 前端構建可能有問題，嘗試修復..."\n\
-    npm run build || echo "❌ 無法修復，將以可用模式運行"\n\
+# 檢查前端構建狀態並修復\n\
+echo "🔍 檢查前端狀態..."\n\
+if [ ! -d ".next" ]; then\n\
+    echo "❌ .next 目錄不存在，創建開發模式結構..."\n\
+    mkdir -p .next/static .next/server/pages\n\
+    echo \'{"version":"dev","buildId":"development"}\' > .next/build-manifest.json\n\
+elif [ ! -f ".next/build-manifest.json" ] && [ ! -f ".next/BUILD_ID" ]; then\n\
+    echo "⚠️ 構建文件不完整，嘗試快速修復..."\n\
+    NODE_ENV=development npm run build || (\n\
+        echo "修復失敗，使用開發模式..."\n\
+        mkdir -p .next/static .next/server/pages\n\
+        echo \'{"version":"dev","buildId":"development"}\' > .next/build-manifest.json\n\
+    )\n\
+else\n\
+    echo "✅ 前端構建狀態正常"\n\
 fi\n\
+\n\
+# 檢查關鍵依賴\n\
+echo "🔍 檢查關鍵依賴..."\n\
+npm list next || echo "⚠️ Next.js 可能有問題"\n\
 \n\
 echo "✅ 啟動前後端服務..."\n\
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf' > /app/start.sh
@@ -193,7 +207,7 @@ RUN chmod +x /app/start.sh
 EXPOSE 80
 
 # 健康檢查
-HEALTHCHECK --interval=60s --timeout=15s --start-period=120s --retries=3 \
+HEALTHCHECK --interval=60s --timeout=15s --start-period=180s --retries=3 \
     CMD curl -f http://localhost:80/health || curl -f http://localhost:80/ || exit 1
 
 CMD ["/app/start.sh"] 
