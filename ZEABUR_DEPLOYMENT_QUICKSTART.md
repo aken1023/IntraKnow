@@ -4,20 +4,19 @@
 
 已為您創建完整的 Zeabur Docker 部署配置：
 
-✅ **Dockerfile** - 多階段構建，前後端整合  
-✅ **nginx.conf** - Nginx 代理配置  
-✅ **supervisord.conf** - 進程管理配置  
-✅ **start.sh** - 啟動腳本  
+✅ **Dockerfile** - 多階段構建，前後端整合，內聯所有配置  
 ✅ **zeabur.toml** - Zeabur 部署配置  
 ✅ **package.json** - Node.js 依賴（已調整生產環境）  
 ✅ **requirements-zeabur-fixed.txt** - Python 依賴  
+
+**注意**: Nginx、Supervisor 和啟動腳本配置都已內聯到 Dockerfile 中，無需額外的配置文件。
 
 ## 🎯 快速部署步驟
 
 ### 1. 提交代碼
 ```bash
 git add .
-git commit -m "Add Zeabur Docker deployment configuration"
+git commit -m "Fix Zeabur Docker deployment - inline configurations"
 git push origin main
 ```
 
@@ -48,7 +47,7 @@ curl https://your-app.zeabur.app/
 
 ```
 Zeabur → Docker Container (Port 80)
-├── Nginx (反向代理)
+├── Nginx (反向代理) - 內聯配置
 ├── Frontend: Next.js (Port 3000)
 └── Backend: FastAPI (Port 8000)
 ```
@@ -86,6 +85,7 @@ NEXT_PUBLIC_API_URL=/api
 1. 檢查 GitHub 儲存庫是否包含所有配置文件
 2. 查看 Zeabur 構建日誌的錯誤信息
 3. 確認 `Dockerfile` 和依賴文件正確
+4. **新版本已修復**: 配置文件內聯問題已解決
 
 ### 如果應用無法啟動
 1. 檢查 Zeabur 運行時日誌
@@ -94,8 +94,22 @@ NEXT_PUBLIC_API_URL=/api
 
 ### 如果前端空白
 1. 檢查 Next.js 構建是否成功
-2. 驗證 Nginx 代理配置
+2. 驗證 Nginx 代理配置（已內聯到 Dockerfile）
 3. 確認靜態文件路徑正確
+
+## 🔄 版本說明
+
+### v2.1 修復內容 ✨
+- **修復**: Docker 構建時找不到配置文件的問題
+- **改進**: 所有配置文件（nginx.conf, supervisord.conf, start.sh）已內聯到 Dockerfile
+- **優化**: 移除了外部配置文件依賴
+- **增強**: 更穩定的構建過程
+
+### 主要變更
+```
+舊版本: COPY nginx.conf → ❌ 找不到文件
+新版本: RUN echo '...' > /etc/nginx/... → ✅ 內聯創建
+```
 
 ## 📈 監控建議
 
@@ -121,4 +135,4 @@ Zeabur 會自動重新部署。
 
 ---
 
-**🎉 恭喜！您的 IntraKnow 企業知識庫系統現在可以在 Zeabur 上運行了！** 
+**🎉 恭喜！修復版本的 IntraKnow 企業知識庫系統現在可以在 Zeabur 上成功部署了！** 
