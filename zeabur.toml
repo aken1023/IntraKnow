@@ -148,5 +148,5 @@ errors = true
 performance = true
 
 [deploy]
-# 純後端 API 部署配置
-port = 8000 
+# 全棧應用部署配置 (Nginx 代理)
+port = 80 
