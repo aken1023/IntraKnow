@@ -34,35 +34,52 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 複製前端配置文件
 COPY package*.json ./
-COPY next.config.js ./
-COPY tsconfig.json ./
-COPY postcss.config.js ./
-COPY tailwind.config.js ./
 
-# 安裝 npm 依賴
-RUN npm install && \
-    npm install --save-dev \
-    tailwindcss@latest \
-    postcss@latest \
-    autoprefixer@latest \
+# 安裝核心依賴
+RUN npm install --legacy-peer-deps \
+    next@13.4.19 \
+    react@18.2.0 \
+    react-dom@18.2.0
+
+# 安裝開發依賴
+RUN npm install --save-dev \
     typescript@latest \
     @types/node@latest \
     @types/react@latest \
     @types/react-dom@latest \
+    tailwindcss@latest \
+    postcss@latest \
+    autoprefixer@latest \
     tailwindcss-animate@latest
 
-# 複製源文件
-COPY . .
+# 複製配置文件
+COPY next.config.js ./
+COPY tsconfig.json ./
+COPY postcss.config.js ./
+COPY tailwind.config.js ./
+COPY app ./app
+COPY components ./components
+COPY styles ./styles
+COPY public ./public
 
 # 創建必要目錄
 RUN mkdir -p /var/log/supervisor /var/log/nginx /var/run \
     user_documents user_indexes logs .next/static
 
+# 初始化 TypeScript
+RUN npx tsc --init
+
+# 初始化 Tailwind
+RUN npx tailwindcss init -p
+
 # 構建前端
 RUN echo "開始構建前端..." && \
-    npm run build || \
+    NODE_OPTIONS="--max-old-space-size=4096" npm run build || \
     (echo "標準構建失敗，切換到開發模式..." && \
-    npm run dev)
+    NODE_ENV=development npm run dev)
+
+# 複製其餘源文件
+COPY . .
 
 # Nginx 配置
 RUN cat > /etc/nginx/nginx.conf << 'EOF'
