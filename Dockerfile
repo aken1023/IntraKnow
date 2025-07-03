@@ -24,7 +24,9 @@ RUN npm install --legacy-peer-deps \
 RUN npm install --save-dev --legacy-peer-deps \
     tailwindcss@3.3.0 \
     postcss@8.4.31 \
-    autoprefixer@10.4.14
+    autoprefixer@10.4.14 \
+    postcss-nesting@12.0.1 \
+    @tailwindcss/nesting@0.0.0-insiders.565cd3e
 
 # 安裝其他開發依賴
 RUN npm install --save-dev --legacy-peer-deps \
