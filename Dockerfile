@@ -34,6 +34,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 複製前端配置文件
 COPY package*.json ./
+COPY next.config.js ./
+COPY tsconfig.json ./
+COPY postcss.config.js ./
+COPY tailwind.config.js ./
+
+# 安裝 TypeScript
+RUN npm install -g typescript
 
 # 安裝核心依賴
 RUN npm install --legacy-peer-deps \
@@ -52,11 +59,13 @@ RUN npm install --save-dev \
     autoprefixer@latest \
     tailwindcss-animate@latest
 
-# 複製配置文件
-COPY next.config.js ./
-COPY tsconfig.json ./
-COPY postcss.config.js ./
-COPY tailwind.config.js ./
+# 初始化 TypeScript（如果 tsconfig.json 不存在）
+RUN if [ ! -f "tsconfig.json" ]; then tsc --init; fi
+
+# 初始化 Tailwind（如果配置文件不存在）
+RUN if [ ! -f "postcss.config.js" ]; then npx tailwindcss init -p; fi
+
+# 複製源代碼
 COPY app ./app
 COPY components ./components
 COPY styles ./styles
@@ -65,12 +74,6 @@ COPY public ./public
 # 創建必要目錄
 RUN mkdir -p /var/log/supervisor /var/log/nginx /var/run \
     user_documents user_indexes logs .next/static
-
-# 初始化 TypeScript
-RUN npx tsc --init
-
-# 初始化 Tailwind
-RUN npx tailwindcss init -p
 
 # 構建前端
 RUN echo "開始構建前端..." && \
