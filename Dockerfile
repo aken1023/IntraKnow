@@ -38,13 +38,7 @@ RUN npm install --save-dev --legacy-peer-deps \
     embla-carousel-react@8.0.0-rc22
 
 # 複製所有源代碼
-COPY app ./app
-COPY components ./components
-COPY styles ./styles
-COPY public ./public
-COPY lib ./lib
-COPY hooks ./hooks
-COPY types ./types
+COPY . .
 
 # 構建前端
 ENV NEXT_TELEMETRY_DISABLED=1
