@@ -47,13 +47,34 @@ function useSidebar() {
   return context
 }
 
+// Add polymorphic type utilities
+type AsProp<C extends React.ElementType> = {
+  as?: C
+}
+
+type PropsToOmit<C extends React.ElementType, P> = keyof (AsProp<C> & P)
+
+type PolymorphicComponentProp<
+  C extends React.ElementType,
+  Props = {}
+> = React.PropsWithChildren<Props & AsProp<C>> &
+  Omit<React.ComponentPropsWithoutRef<C>, PropsToOmit<C, Props>>
+
+type PolymorphicRef<C extends React.ElementType> = React.ComponentPropsWithRef<C>["ref"]
+
+type PolymorphicComponentPropWithRef<
+  C extends React.ElementType,
+  Props = {}
+> = PolymorphicComponentProp<C, Props> & { ref?: PolymorphicRef<C> }
+
 const SidebarProvider = React.forwardRef<
   HTMLDivElement,
-  React.ComponentProps<"div"> & {
+  React.PropsWithChildren<{
     defaultOpen?: boolean
     open?: boolean
     onOpenChange?: (open: boolean) => void
-  }
+  }> &
+    Omit<React.HTMLAttributes<HTMLDivElement>, 'onOpenChange'>
 >(
   (
     {
@@ -430,12 +451,14 @@ SidebarGroup.displayName = "SidebarGroup"
 
 const SidebarGroupLabel = React.forwardRef<
   HTMLDivElement,
-  React.ComponentProps<"div"> & { asChild?: boolean }
+  React.ComponentPropsWithoutRef<"div"> & {
+    asChild?: boolean
+  }
 >(({ className, asChild = false, ...props }, ref) => {
   const Comp = asChild ? Slot : "div"
 
   return (
-    <Comp
+    <div
       ref={ref}
       data-sidebar="group-label"
       className={cn(
@@ -444,19 +467,23 @@ const SidebarGroupLabel = React.forwardRef<
         className
       )}
       {...props}
-    />
+    >
+      {asChild ? props.children : <Comp {...props} />}
+    </div>
   )
 })
 SidebarGroupLabel.displayName = "SidebarGroupLabel"
 
 const SidebarGroupAction = React.forwardRef<
   HTMLButtonElement,
-  React.ComponentProps<"button"> & { asChild?: boolean }
+  React.ComponentPropsWithoutRef<"button"> & {
+    asChild?: boolean
+  }
 >(({ className, asChild = false, ...props }, ref) => {
   const Comp = asChild ? Slot : "button"
 
   return (
-    <Comp
+    <button
       ref={ref}
       data-sidebar="group-action"
       className={cn(
@@ -467,7 +494,9 @@ const SidebarGroupAction = React.forwardRef<
         className
       )}
       {...props}
-    />
+    >
+      {asChild ? props.children : <Comp {...props} />}
+    </button>
   )
 })
 SidebarGroupAction.displayName = "SidebarGroupAction"
@@ -535,15 +564,13 @@ const sidebarMenuButtonVariants = cva(
 
 const SidebarMenuButton = React.forwardRef<
   HTMLButtonElement,
-  React.ComponentProps<"button"> & {
-    asChild?: boolean
+  React.ComponentPropsWithoutRef<typeof Button> & {
     isActive?: boolean
     tooltip?: string | React.ComponentProps<typeof TooltipContent>
   } & VariantProps<typeof sidebarMenuButtonVariants>
 >(
   (
     {
-      asChild = false,
       isActive = false,
       variant = "default",
       size = "default",
@@ -553,11 +580,10 @@ const SidebarMenuButton = React.forwardRef<
     },
     ref
   ) => {
-    const Comp = asChild ? Slot : "button"
     const { isMobile, state } = useSidebar()
 
     const button = (
-      <Comp
+      <Button
         ref={ref}
         data-sidebar="menu-button"
         data-size={size}
@@ -594,17 +620,16 @@ SidebarMenuButton.displayName = "SidebarMenuButton"
 
 const SidebarMenuAction = React.forwardRef<
   HTMLButtonElement,
-  React.ComponentProps<"button"> & {
-    asChild?: boolean
+  React.ComponentPropsWithoutRef<typeof Button> & {
     showOnHover?: boolean
   }
->(({ className, asChild = false, showOnHover = false, ...props }, ref) => {
-  const Comp = asChild ? Slot : "button"
-
+>(({ className, showOnHover = false, ...props }, ref) => {
   return (
-    <Comp
+    <Button
       ref={ref}
       data-sidebar="menu-action"
+      variant="ghost"
+      size="icon"
       className={cn(
         "absolute right-1 top-1.5 flex aspect-square w-5 items-center justify-center rounded-md p-0 text-sidebar-foreground outline-none ring-sidebar-ring transition-transform hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 peer-hover/menu-button:text-sidebar-accent-foreground [&>svg]:size-4 [&>svg]:shrink-0",
         // Increases the hit area of the button on mobile.
@@ -707,7 +732,7 @@ SidebarMenuSubItem.displayName = "SidebarMenuSubItem"
 
 const SidebarMenuSubButton = React.forwardRef<
   HTMLAnchorElement,
-  React.ComponentProps<"a"> & {
+  React.ComponentPropsWithoutRef<"a"> & {
     asChild?: boolean
     size?: "sm" | "md"
     isActive?: boolean
@@ -716,7 +741,7 @@ const SidebarMenuSubButton = React.forwardRef<
   const Comp = asChild ? Slot : "a"
 
   return (
-    <Comp
+    <a
       ref={ref}
       data-sidebar="menu-sub-button"
       data-size={size}
@@ -730,7 +755,9 @@ const SidebarMenuSubButton = React.forwardRef<
         className
       )}
       {...props}
-    />
+    >
+      {asChild ? props.children : <Comp {...props} />}
+    </a>
   )
 })
 SidebarMenuSubButton.displayName = "SidebarMenuSubButton"

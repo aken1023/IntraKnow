@@ -1,4 +1,4 @@
-import type { Metadata, Viewport } from 'next'
+import type { Metadata } from 'next'
 import { Noto_Sans_TC, Noto_Serif_TC } from 'next/font/google'
 import './globals.css'
 import { cn } from '@/lib/utils'
@@ -25,12 +25,6 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'),
 }
 
-export const viewport: Viewport = {
-  width: 'device-width',
-  initialScale: 1,
-  maximumScale: 5,
-}
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -40,6 +34,7 @@ export default function RootLayout({
     <html lang="zh-Hant" suppressHydrationWarning>
       <head>
         <meta name="theme-color" content="#ffffff" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
       </head>

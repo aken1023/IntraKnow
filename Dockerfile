@@ -10,29 +10,47 @@ COPY tsconfig.json ./
 COPY postcss.config.js ./
 COPY tailwind.config.js ./
 
-# 安裝依賴
+# 安裝核心依賴
 RUN npm install --legacy-peer-deps \
     next@13.4.19 \
     react@18.2.0 \
     react-dom@18.2.0 \
-    tailwindcss@latest \
-    postcss@latest \
-    autoprefixer@latest \
-    && npm install --save-dev --legacy-peer-deps \
+    recharts@2.12.2 \
+    react-input-otp@1.0.1 \
+    react-resizable-panels@1.0.9 \
+    @radix-ui/react-toggle-group@1.0.4
+
+# 安裝 Tailwind 相關依賴
+RUN npm install --save-dev --legacy-peer-deps \
+    tailwindcss@3.3.0 \
+    postcss@8.4.31 \
+    autoprefixer@10.4.14
+
+# 安裝其他開發依賴
+RUN npm install --save-dev --legacy-peer-deps \
     @types/node@18.11.3 \
     @types/react@18.0.21 \
     @types/react-dom@18.0.6 \
     typescript@4.9.4 \
-    tailwindcss-animate@latest
+    tailwindcss-animate@latest \
+    embla-carousel-react@8.0.0-rc22
 
-# 複製源代碼
+# 複製所有源代碼
 COPY app ./app
 COPY components ./components
 COPY styles ./styles
 COPY public ./public
+COPY lib ./lib
+COPY hooks ./hooks
+COPY types ./types
 
 # 構建前端
-RUN NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS="--max-old-space-size=4096" npm run build
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+RUN npm run build
+
+# 安裝生產環境依賴
+RUN npm install --production --legacy-peer-deps
 
 FROM python:3.11-slim
 
@@ -61,9 +79,11 @@ ENV PYTHONPATH=/app \
 COPY scripts/requirements-minimal.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 複製前端構建結果
+# 複製前端構建結果和依賴
 COPY --from=frontend /app/.next ./.next
 COPY --from=frontend /app/public ./public
+COPY --from=frontend /app/package.json ./package.json
+COPY --from=frontend /app/node_modules ./node_modules
 
 # 複製其餘源文件
 COPY . .
