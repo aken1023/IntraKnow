@@ -1,0 +1,62 @@
+# Zeabur 部署环境变量配置
+# 请将以下环境变量添加到 Zeabur 控制台中
+
+# ==================== 必需配置 ====================
+
+# DeepSeek AI API 密钥（必需）
+# 获取地址：https://platform.deepseek.com/api_keys
+DEEPSEEK_API_KEY=sk-your-deepseek-api-key-here
+
+# JWT 签名密钥（必需 - 请更改为强密码）
+SECRET_KEY=your-super-secret-jwt-key-change-this-in-production-12345
+
+# 服务器端口（Zeabur 会自动映射）
+PORT=8000
+
+# ==================== 数据库配置 ====================
+
+# SQLite 数据库路径
+DATABASE_URL=sqlite:///./knowledge_base.db
+
+# ==================== 服务器配置 ====================
+
+# 服务器主机地址
+HOST=0.0.0.0
+
+# 允许所有来源的跨域请求（生产环境可调整）
+ALLOW_ALL_ORIGINS=true
+
+# ==================== Python 环境配置 ====================
+
+# Python 路径
+PYTHONPATH=/opt/zeabur/src
+
+# Python 输出不缓冲
+PYTHONUNBUFFERED=1
+
+# 不生成 .pyc 文件
+PYTHONDONTWRITEBYTECODE=1
+
+# ==================== AI 模型配置（可选）====================
+
+# 嵌入模型名称
+EMBEDDING_MODEL=BAAI/bge-base-zh
+
+# 语言模型名称
+MODEL_NAME=deepseek-chat
+
+# ==================== 前端配置（如果需要）====================
+
+# 前端应用 URL（如果同时部署前端）
+FRONTEND_URL=https://your-app-name.zeabur.app
+
+# ==================== 日志配置（可选）====================
+
+# 日志级别
+LOG_LEVEL=INFO
+
+# ==================== 说明 ====================
+# 1. 将 "your-deepseek-api-key-here" 替换为你的真实 DeepSeek API 密钥
+# 2. 将 "your-super-secret-jwt-key-change-this-in-production-12345" 替换为强密码
+# 3. 将 "your-app-name" 替换为你的 Zeabur 应用名称
+# 4. 其他配置项根据需要调整 
