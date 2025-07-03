@@ -30,38 +30,37 @@ RUN pip install --no-cache-dir --upgrade pip
 COPY scripts/requirements-minimal.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 複製源文件
-COPY . .
+# 複製 package.json 和 package-lock.json（如果存在）
+COPY package*.json ./
+COPY next.config.js ./
+COPY tsconfig.json ./
+COPY postcss.config.js ./
+COPY tailwind.config.js ./
 
-# 確保 package.json 存在
-RUN test -f package.json || echo '{"dependencies":{},"devDependencies":{}}' > package.json
-
-# 安裝核心依賴
-RUN npm install --save-dev \
+# 安裝 npm 依賴
+RUN npm install --legacy-peer-deps \
+    next@13.4.19 \
+    react@18.2.0 \
+    react-dom@18.2.0 \
     tailwindcss@latest \
     postcss@latest \
     autoprefixer@latest \
     typescript@latest \
     @types/node@latest \
     @types/react@latest \
-    @types/react-dom@latest \
-    && npm install --save \
-    next@13.4.19 \
-    react@18.2.0 \
-    react-dom@18.2.0
+    @types/react-dom@latest
 
-# 初始化 TypeScript 配置
-RUN test -f tsconfig.json || npx tsc --init
+# 複製其餘源文件
+COPY . .
 
-# 初始化 Tailwind
-RUN test -f tailwind.config.js || npx tailwindcss init -p
+# 創建必要目錄
+RUN mkdir -p /var/log/supervisor /var/log/nginx /var/run \
+    user_documents user_indexes logs .next/static
 
 # 構建前端
 RUN echo "開始構建前端..." && \
     NODE_OPTIONS="--max-old-space-size=2048" npm run build || \
     (echo "標準構建失敗，切換到開發模式..." && \
-    echo '{"scripts":{"dev":"next dev","build":"next build","start":"next start"}}' > package.json && \
-    npm install && \
     NODE_ENV=development npm run dev)
 
 # Nginx 配置
@@ -204,10 +203,6 @@ environment=NODE_ENV="development",PORT="3000"
 stdout_logfile=/var/log/nextjs.log
 stderr_logfile=/var/log/nextjs_error.log
 EOF
-
-# 創建必要目錄
-RUN mkdir -p /var/log/supervisor /var/log/nginx /var/run \
-    user_documents user_indexes logs .next/static
 
 # 啟動腳本
 RUN cat > /app/start.sh << 'EOF'
