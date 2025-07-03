@@ -73,13 +73,18 @@ def start_backend():
     """啟動後端服務"""
     print("[後端] 正在啟動 API 服務器...")
     try:
+        # 設置環境變量，確保子進程使用 UTF-8 編碼
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+
         # 啟動後端
         backend_process = subprocess.Popen(
             [sys.executable, "scripts/auth_api_server.py"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            bufsize=1
+            bufsize=1,
+            env=env
         )
         processes.append(backend_process)
         
@@ -107,18 +112,34 @@ def start_frontend():
         # 設置環境變量
         env = os.environ.copy()
         env["NEXT_PUBLIC_API_URL"] = "http://localhost:8000"
+        env["PYTHONIOENCODING"] = "utf-8" # 確保子進程使用 UTF-8 編碼
         
         # 根據操作系統選擇命令
         import platform
         if platform.system() == "Windows":
             # Windows 下使用 npm.cmd
-            cmd = ["npm.cmd", "run", "dev"]
+            npm_cmd = "npm.cmd"
         else:
-            cmd = ["npm", "run", "dev"]
+            npm_cmd = "npm"
+            
+        # 先構建前端
+        print("[前端] 構建 Next.js 應用...")
+        build_process = subprocess.run(
+            [npm_cmd, "run", "build"],
+            env=env,
+            capture_output=True,
+            text=True
+        )
+        
+        if build_process.returncode != 0:
+            print(f"[錯誤] 前端構建失敗: {build_process.stderr}")
+            return None
+            
+        print("[前端] 構建完成，啟動開發服務器...")
         
         # 啟動前端
         frontend_process = subprocess.Popen(
-            cmd,
+            [npm_cmd, "run", "dev"],
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

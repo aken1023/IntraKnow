@@ -93,19 +93,56 @@ def start_backend():
         print(f"[錯誤] 啟動後端失敗: {e}")
         return None
 
+def get_npm_command():
+    """獲取正確的 npm 命令"""
+    import platform
+    if platform.system() == "Windows":
+        return "npm.cmd"
+    return "npm"
+
+def check_and_install_dependencies():
+    """檢查並安裝前端依賴"""
+    if not Path("node_modules").exists():
+        print("[前端] 正在安裝前端依賴...")
+        npm_cmd = get_npm_command()
+        try:
+            install_process = subprocess.run(
+                [npm_cmd, "install"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            print("[前端] 依賴安裝完成")
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"[錯誤] 依賴安裝失敗: {e.stderr}")
+            return False
+        except FileNotFoundError:
+            print(f"[錯誤] 找不到 npm 命令，請確保已安裝 Node.js")
+            return False
+    else:
+        print("[前端] 依賴已存在")
+        return True
+
 def start_frontend():
     """啟動前端服務"""
     print("[前端] 正在啟動 Next.js 應用...")
     try:
+        # 檢查並安裝依賴
+        if not check_and_install_dependencies():
+            return None
+            
         # 設置前端環境變量
         env = os.environ.copy()
         env["PORT"] = os.getenv("PORT", "3000")
         env["NODE_ENV"] = "production"
         
+        npm_cmd = get_npm_command()
+        
         # 首先構建前端
         print("[前端] 構建 Next.js 應用...")
         build_process = subprocess.run(
-            ["npm", "run", "build"],
+            [npm_cmd, "run", "build"],
             env=env,
             capture_output=True,
             text=True
@@ -119,7 +156,7 @@ def start_frontend():
         
         # 啟動前端生產服務器
         frontend_process = subprocess.Popen(
-            ["npm", "start"],
+            [npm_cmd, "start"],
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

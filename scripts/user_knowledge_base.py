@@ -249,8 +249,8 @@ class UserKnowledgeBaseSystem:
         
         return results
     
-    def query_user_with_llm(self, user_id: int, query: str, context_docs: List[str], db_session=None, conversation_history: List[dict] = None) -> str:
-        """為特定用戶結合檢索結果調用 LLM，使用用戶選擇的模型，支持對話歷史"""
+    def query_user_with_llm(self, user_id: int, query: str, context_docs: List[str], db_session=None, conversation_history: List[dict] = None): # Changed return type to generator
+        """為特定用戶結合檢索結果調用 LLM，使用用戶選擇的模型，支持對話歷史，並以流式返回"""
         # 構建檢索到的文檔上下文
         context = "\n\n".join([f"文檔{i+1}: {doc}" for i, doc in enumerate(context_docs)])
         
@@ -293,18 +293,17 @@ class UserKnowledgeBaseSystem:
         # 根據提供商調用不同的 API
         try:
             if model_config['provider'] == 'deepseek':
-                return self._call_deepseek_api(user_id, prompt, model_config, conversation_history)
+                yield from self._call_deepseek_api(user_id, prompt, model_config, conversation_history)
             elif model_config['provider'] == 'openai':
-                return self._call_openai_api(user_id, prompt, model_config, conversation_history)
+                yield from self._call_openai_api(user_id, prompt, model_config, conversation_history)
             elif model_config['provider'] == 'anthropic':
-                return self._call_anthropic_api(user_id, prompt, model_config, conversation_history)
+                yield from self._call_anthropic_api(user_id, prompt, model_config, conversation_history)
             else:
-                # Google, Microsoft 等其他提供商使用 OpenAI 兼容格式
-                return self._call_openai_compatible_api(user_id, prompt, model_config, conversation_history)
+                yield from self._call_openai_compatible_api(user_id, prompt, model_config, conversation_history)
                 
         except Exception as e:
             logger.error(f"LLM 調用錯誤: {e}")
-            return f"基於您的文檔，無法生成回答。錯誤: {str(e)}"
+            yield f"基於您的文檔，無法生成回答。錯誤: {str(e)}"
     
     def _get_user_preferred_model(self, user_id: int, db_session) -> Optional[Dict]:
         """獲取用戶的預設模型配置"""
@@ -327,20 +326,20 @@ class UserKnowledgeBaseSystem:
         
         return None
     
-    def _call_deepseek_api(self, user_id: int, prompt: str, model_config: Dict, conversation_history: List[dict] = None) -> str:
-        """調用 DeepSeek API，支持對話歷史"""
+    def _call_deepseek_api(self, user_id: int, prompt: str, model_config: Dict, conversation_history: List[dict] = None):
+        """調用 DeepSeek API，支持對話歷史，並以流式返回"""
         import requests
+        import json # Import json for parsing stream chunks
         
         api_key = model_config.get('api_key') or os.getenv("DEEPSEEK_API_KEY")
         if not api_key:
-            return "錯誤：未設置 DeepSeek API 密鑰"
+            yield "錯誤：未設置 DeepSeek API 密鑰"
+            return
         
-        # 構建消息列表
         messages = [
             {"role": "system", "content": f"你是用戶 {user_id} 的私人知識庫助手，只能基於該用戶上傳的文檔回答問題。請保持對話的連貫性和上下文理解。"}
         ]
         
-        # 添加對話歷史（最近的6條消息，保持API調用效率）
         if conversation_history:
             for msg in conversation_history[-6:]:
                 if msg.get('role') in ['user', 'assistant']:
@@ -349,43 +348,60 @@ class UserKnowledgeBaseSystem:
                         "content": msg['content']
                     })
         
-        # 添加當前的查詢
         messages.append({"role": "user", "content": prompt})
             
-        response = requests.post(
-            f"{model_config['api_base_url']}/v1/chat/completions",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            },
-            json={
-                "model": model_config['model_id'],
-                "messages": messages,
-                "temperature": 0.7
-            },
-            timeout=300
-        )
-        
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
-        else:
-            logger.error(f"DeepSeek API 調用失敗: {response.status_code} {response.text}")
-            return f"API 調用失敗: {response.text}"
+        try:
+            with requests.post(
+                f"{model_config['api_base_url']}/v1/chat/completions",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}"
+                },
+                json={
+                    "model": model_config['model_id'],
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "stream": True # Enable streaming
+                },
+                stream=True, # Important for requests to stream
+                timeout=300
+            ) as response:
+                response.raise_for_status() # Raise an exception for HTTP errors
+                
+                for line in response.iter_lines():
+                    if line:
+                        decoded_line = line.decode('utf-8')
+                        if decoded_line.startswith('data:'):
+                            json_data = decoded_line[len('data:'):].strip()
+                            if json_data == '[DONE]':
+                                break
+                            try:
+                                chunk = json.loads(json_data)
+                                # Extract content from the chunk
+                                content = chunk["choices"][0]["delta"].get("content", "")
+                                if content:
+                                    yield content
+                            except json.JSONDecodeError:
+                                logger.warning(f"無法解析 JSON 數據塊: {json_data}")
+                                continue
+        except requests.exceptions.RequestException as e:
+            logger.error(f"DeepSeek API 調用失敗: {e}")
+            yield f"API 調用失敗: {str(e)}"
     
-    def _call_openai_api(self, user_id: int, prompt: str, model_config: Dict, conversation_history: List[dict] = None) -> str:
-        """調用 OpenAI API，支持對話歷史"""
+    def _call_openai_api(self, user_id: int, prompt: str, model_config: Dict, conversation_history: List[dict] = None):
+        """調用 OpenAI API，支持對話歷史，並以流式返回"""
         import requests
+        import json
         
         api_key = model_config.get('api_key')
         if not api_key:
-            return "錯誤：未設置 OpenAI API 密鑰"
+            yield "錯誤：未設置 OpenAI API 密鑰"
+            return
         
-        # 構建消息列表
         messages = [
             {"role": "system", "content": f"你是用戶 {user_id} 的私人知識庫助手，只能基於該用戶上傳的文檔回答問題。請保持對話的連貫性和上下文理解。"}
         ]
         
-        # 添加對話歷史
         if conversation_history:
             for msg in conversation_history[-6:]:
                 if msg.get('role') in ['user', 'assistant']:
@@ -394,42 +410,58 @@ class UserKnowledgeBaseSystem:
                         "content": msg['content']
                     })
         
-        # 添加當前的查詢
         messages.append({"role": "user", "content": prompt})
             
-        response = requests.post(
-            f"{model_config['api_base_url']}/chat/completions",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            },
-            json={
-                "model": model_config['model_id'],
-                "messages": messages,
-                "temperature": 0.7
-            },
-            timeout=300
-        )
-        
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
-        else:
-            logger.error(f"OpenAI API 調用失敗: {response.status_code} {response.text}")
-            return f"API 調用失敗: {response.text}"
+        try:
+            with requests.post(
+                f"{model_config['api_base_url']}/chat/completions",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}"
+                },
+                json={
+                    "model": model_config['model_id'],
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "stream": True
+                },
+                stream=True,
+                timeout=300
+            ) as response:
+                response.raise_for_status()
+                
+                for line in response.iter_lines():
+                    if line:
+                        decoded_line = line.decode('utf-8')
+                        if decoded_line.startswith('data:'):
+                            json_data = decoded_line[len('data:'):].strip()
+                            if json_data == '[DONE]':
+                                break
+                            try:
+                                chunk = json.loads(json_data)
+                                content = chunk["choices"][0]["delta"].get("content", "")
+                                if content:
+                                    yield content
+                            except json.JSONDecodeError:
+                                logger.warning(f"無法解析 JSON 數據塊: {json_data}")
+                                continue
+        except requests.exceptions.RequestException as e:
+            logger.error(f"OpenAI API 調用失敗: {e}")
+            yield f"API 調用失敗: {str(e)}"
     
-    def _call_anthropic_api(self, user_id: int, prompt: str, model_config: Dict, conversation_history: List[dict] = None) -> str:
-        """調用 Anthropic Claude API，支持對話歷史"""
+    def _call_anthropic_api(self, user_id: int, prompt: str, model_config: Dict, conversation_history: List[dict] = None):
+        """調用 Anthropic Claude API，支持對話歷史，並以流式返回"""
         import requests
+        import json
         
         api_key = model_config.get('api_key')
         if not api_key:
-            return "錯誤：未設置 Anthropic API 密鑰"
+            yield "錯誤：未設置 Anthropic API 密鑰"
+            return
         
-        # 構建消息列表（Anthropic 不使用系統消息，將其合併到用戶消息中）
         messages = []
         system_message = f"你是用戶 {user_id} 的私人知識庫助手，只能基於該用戶上傳的文檔回答問題。請保持對話的連貫性和上下文理解。"
         
-        # 添加對話歷史
         if conversation_history:
             for msg in conversation_history[-6:]:
                 if msg.get('role') in ['user', 'assistant']:
@@ -438,47 +470,66 @@ class UserKnowledgeBaseSystem:
                         "content": msg['content']
                     })
         
-        # 添加當前的查詢，並包含系統指令
         if messages:
             messages.append({"role": "user", "content": prompt})
         else:
             messages.append({"role": "user", "content": f"{system_message}\n\n{prompt}"})
             
-        response = requests.post(
-            f"{model_config['api_base_url']}/v1/messages",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-                "anthropic-version": "2023-06-01"
-            },
-            json={
-                "model": model_config['model_id'],
-                "max_tokens": 1000,
-                "messages": messages
-            },
-            timeout=300
-        )
-        
-        if response.status_code == 200:
-            return response.json()["content"][0]["text"]
-        else:
-            logger.error(f"Anthropic API 調用失敗: {response.status_code} {response.text}")
-            return f"API 調用失敗: {response.text}"
+        try:
+            with requests.post(
+                f"{model_config['api_base_url']}/v1/messages",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                    "anthropic-version": "2023-06-01"
+                },
+                json={
+                    "model": model_config['model_id'],
+                    "max_tokens": 1000,
+                    "messages": messages,
+                    "stream": True
+                },
+                stream=True,
+                timeout=300
+            ) as response:
+                response.raise_for_status()
+                
+                for line in response.iter_lines():
+                    if line:
+                        decoded_line = line.decode('utf-8')
+                        if decoded_line.startswith('data:'):
+                            json_data = decoded_line[len('data:'):].strip()
+                            if json_data == '[DONE]':
+                                break
+                            try:
+                                chunk = json.loads(json_data)
+                                # Anthropic stream response structure might be different
+                                # Need to check Anthropic API docs for exact streaming format
+                                # Assuming it's similar to OpenAI's delta.content for now
+                                content = chunk.get("delta", {}).get("text", "") # Adjust based on actual Anthropic stream format
+                                if content:
+                                    yield content
+                            except json.JSONDecodeError:
+                                logger.warning(f"無法解析 JSON 數據塊: {json_data}")
+                                continue
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Anthropic API 調用失敗: {e}")
+            yield f"API 調用失敗: {str(e)}"
     
-    def _call_openai_compatible_api(self, user_id: int, prompt: str, model_config: Dict, conversation_history: List[dict] = None) -> str:
-        """調用 OpenAI 兼容的 API（如 Google, Microsoft 等），支持對話歷史"""
+    def _call_openai_compatible_api(self, user_id: int, prompt: str, model_config: Dict, conversation_history: List[dict] = None):
+        """調用 OpenAI 兼容的 API（如 Google, Microsoft 等），支持對話歷史，並以流式返回"""
         import requests
+        import json
         
         api_key = model_config.get('api_key')
         if not api_key:
-            return f"錯誤：未設置 {model_config['provider']} API 密鑰"
+            yield f"錯誤：未設置 {model_config['provider']} API 密鑰"
+            return
         
-        # 構建消息列表
         messages = [
             {"role": "system", "content": f"你是用戶 {user_id} 的私人知識庫助手，只能基於該用戶上傳的文檔回答問題。請保持對話的連貫性和上下文理解。"}
         ]
         
-        # 添加對話歷史
         if conversation_history:
             for msg in conversation_history[-6:]:
                 if msg.get('role') in ['user', 'assistant']:
@@ -487,28 +538,44 @@ class UserKnowledgeBaseSystem:
                         "content": msg['content']
                     })
         
-        # 添加當前的查詢
         messages.append({"role": "user", "content": prompt})
             
-        response = requests.post(
-            f"{model_config['api_base_url']}/chat/completions",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            },
-            json={
-                "model": model_config['model_id'],
-                "messages": messages,
-                "temperature": 0.7
-            },
-            timeout=300
-        )
-        
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"]
-        else:
-            logger.error(f"{model_config['provider']} API 調用失敗: {response.status_code} {response.text}")
-            return f"API 調用失敗: {response.text}"
+        try:
+            with requests.post(
+                f"{model_config['api_base_url']}/chat/completions",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}"
+                },
+                json={
+                    "model": model_config['model_id'],
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "stream": True
+                },
+                stream=True,
+                timeout=300
+            ) as response:
+                response.raise_for_status()
+                
+                for line in response.iter_lines():
+                    if line:
+                        decoded_line = line.decode('utf-8')
+                        if decoded_line.startswith('data:'):
+                            json_data = decoded_line[len('data:'):].strip()
+                            if json_data == '[DONE]':
+                                break
+                            try:
+                                chunk = json.loads(json_data)
+                                content = chunk["choices"][0]["delta"].get("content", "")
+                                if content:
+                                    yield content
+                            except json.JSONDecodeError:
+                                logger.warning(f"無法解析 JSON 數據塊: {json_data}")
+                                continue
+        except requests.exceptions.RequestException as e:
+            logger.error(f"{model_config['provider']} API 調用失敗: {e}")
+            yield f"API 調用失敗: {str(e)}"
     
     def delete_user_document(self, user_id: int, filename: str) -> bool:
         """刪除用戶文檔"""

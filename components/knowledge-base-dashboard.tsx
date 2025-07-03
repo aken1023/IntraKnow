@@ -589,16 +589,53 @@ const useDashboardState = () => {
 
     try {
       const conversationContext = conversation.slice(-8).map(msg => ({ role: msg.type === 'user' ? 'user' : 'assistant', content: msg.content }));
-      const response = await fetch(`${API_BASE_URL}/query`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: currentQuery, conversation_history: conversationContext }) });
-      if (response.ok) {
-        const data = await response.json();
-        const assistantMessage: ConversationMessage = { id: `assistant-${Date.now()}`, type: 'assistant', content: data.answer || '未找到答案', query: currentQuery, sources: data.sources || [], timestamp: new Date().toISOString() };
-        setConversation(prev => [...prev, assistantMessage]);
-      } else {
+      const response = await fetch(`${API_BASE_URL}/query`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: currentQuery, conversation_history: conversationContext }),
+      });
+
+      if (!response.ok) {
         const errorText = await response.text();
         const errorMessage: ConversationMessage = { id: `assistant-${Date.now()}`, type: 'assistant', content: `查詢出錯: ${errorText}`, query: currentQuery, timestamp: new Date().toISOString() };
         setConversation(prev => [...prev, errorMessage]);
+        setIsLoading(false);
+        return;
       }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("無法獲取回應讀取器");
+      }
+
+      let assistantResponseContent = '';
+      const assistantMessageId = `assistant-${Date.now()}`;
+      const assistantMessage: ConversationMessage = { id: assistantMessageId, type: 'assistant', content: '', query: currentQuery, sources: [], timestamp: new Date().toISOString() };
+      setConversation(prev => [...prev, assistantMessage]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        const chunk = new TextDecoder().decode(value);
+        assistantResponseContent += chunk;
+        setConversation(prev =>
+          prev.map(msg =>
+            msg.id === assistantMessageId ? { ...msg, content: assistantResponseContent } : msg
+          )
+        );
+        conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+
+      // 這裡可以處理 sources 和 processing_time，如果後端有發送的話
+      // 目前後端只發送了 answer 的 chunk，所以 sources 和 processing_time 需要額外處理
+      // 例如，可以在流結束時發送一個特殊的 JSON 塊，包含這些資訊
+      // 或者在流結束後再發送一個單獨的請求來獲取這些資訊
+
     } catch (error) {
       const errorMessage: ConversationMessage = { id: `assistant-${Date.now()}`, type: 'assistant', content: '網路請求失敗，請檢查後端服務是否正常運作。', query: currentQuery, timestamp: new Date().toISOString() };
       setConversation(prev => [...prev, errorMessage]);

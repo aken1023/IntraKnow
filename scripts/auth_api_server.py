@@ -35,6 +35,7 @@ if str(parent_dir) not in sys.path:
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form
+from fastapi.responses import StreamingResponse # Import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -490,8 +491,8 @@ async def query_knowledge_base(
         # 提取最相關的上下文文檔
         context_docs = [result['content'] for result in search_results[:2]]
         
-        # 使用 LLM 生成回答
-        answer = user_kb_system.query_user_with_llm(
+        # 使用 LLM 生成回答 (現在是生成器)
+        answer_generator = user_kb_system.query_user_with_llm(
             user_id=current_user.id,
             query=request.query,
             context_docs=context_docs,
@@ -499,15 +500,20 @@ async def query_knowledge_base(
             conversation_history=request.conversation_history
         )
         
-        processing_time = time.time() - start_time
-        
-        return {
-            "query": request.query,
-            "answer": answer,
-            "sources": search_results,
-            "processing_time": processing_time,
-            "ai_enabled": True
-        }
+        # 將生成器包裝在 StreamingResponse 中
+        async def generate_response():
+            full_answer = ""
+            for chunk in answer_generator:
+                full_answer += chunk
+                yield chunk.encode("utf-8") # 將每個塊編碼為字節
+            
+            # 在流結束時發送額外信息 (例如 sources, processing_time)
+            # 這需要前端能夠解析這些額外信息
+            # 這裡為了簡化，先只發送答案，後續可以考慮更複雜的協議
+            # yield f"\n\nSOURCES: {json.dumps(search_results)}\nPROCESSING_TIME: {time.time() - start_time}".encode("utf-8")
+
+        return StreamingResponse(generate_response(), media_type="text/event-stream")
+
     except Exception as e:
         return {
             "query": request.query,
