@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     nginx \
     supervisor \
+    procps \
     --no-install-recommends \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs --no-install-recommends \
@@ -21,7 +22,8 @@ ENV PYTHONPATH=/app \
     NODE_ENV=production \
     TORCH_HOME=/app/.cache/torch \
     HF_HOME=/app/.cache/huggingface \
-    NEXT_TELEMETRY_DISABLED=1
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000
 
 # 升級 pip
 RUN pip install --no-cache-dir --upgrade pip
@@ -30,7 +32,7 @@ RUN pip install --no-cache-dir --upgrade pip
 COPY scripts/requirements-minimal.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 複製 package.json 和 package-lock.json（如果存在）
+# 複製前端配置文件
 COPY package*.json ./
 COPY next.config.js ./
 COPY tsconfig.json ./
@@ -38,19 +40,18 @@ COPY postcss.config.js ./
 COPY tailwind.config.js ./
 
 # 安裝 npm 依賴
-RUN npm install --legacy-peer-deps \
-    next@13.4.19 \
-    react@18.2.0 \
-    react-dom@18.2.0 \
+RUN npm install && \
+    npm install --save-dev \
     tailwindcss@latest \
     postcss@latest \
     autoprefixer@latest \
     typescript@latest \
     @types/node@latest \
     @types/react@latest \
-    @types/react-dom@latest
+    @types/react-dom@latest \
+    tailwindcss-animate@latest
 
-# 複製其餘源文件
+# 複製源文件
 COPY . .
 
 # 創建必要目錄
@@ -59,15 +60,16 @@ RUN mkdir -p /var/log/supervisor /var/log/nginx /var/run \
 
 # 構建前端
 RUN echo "開始構建前端..." && \
-    NODE_OPTIONS="--max-old-space-size=2048" npm run build || \
+    npm run build || \
     (echo "標準構建失敗，切換到開發模式..." && \
-    NODE_ENV=development npm run dev)
+    npm run dev)
 
 # Nginx 配置
 RUN cat > /etc/nginx/nginx.conf << 'EOF'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
+error_log /var/log/nginx/error.log warn;
 
 events {
     worker_connections 1024;
@@ -105,21 +107,21 @@ map $http_upgrade $connection_upgrade {
 }
 
 upstream nextjs_upstream {
-    server localhost:3000;
+    server 127.0.0.1:3000;
     keepalive 32;
 }
 
 upstream fastapi_upstream {
-    server localhost:8000;
+    server 127.0.0.1:8000;
     keepalive 32;
 }
 
 server {
-    listen ${PORT} default_server;
+    listen 80 default_server;
     server_name _;
 
     # 基本設置
-    client_max_body_size ${MAX_FILE_SIZE};
+    client_max_body_size 50M;
     proxy_http_version 1.1;
     
     # 通用代理設置
@@ -161,10 +163,10 @@ server {
     }
 
     # 健康檢查
-    location /health {
+    location = /health {
         access_log off;
-        return 200 'OK';
         add_header Content-Type text/plain;
+        return 200 'OK';
     }
 }
 EOF
@@ -178,30 +180,45 @@ nodaemon=true
 user=root
 logfile=/var/log/supervisor/supervisord.log
 pidfile=/var/run/supervisord.pid
+childlogdir=/var/log/supervisor
 
 [program:nginx]
 command=nginx -g "daemon off;"
 autostart=true
 autorestart=true
+startretries=5
+startsecs=5
 stdout_logfile=/var/log/nginx/access.log
 stderr_logfile=/var/log/nginx/error.log
+priority=10
 
 [program:fastapi]
 command=python scripts/auth_api_server.py
 directory=/app
 autostart=true
 autorestart=true
+startretries=5
+startsecs=10
 stdout_logfile=/var/log/fastapi.log
 stderr_logfile=/var/log/fastapi_error.log
+environment=PYTHONUNBUFFERED="1",PYTHONPATH="/app"
+priority=20
 
 [program:nextjs]
 command=npm run dev
 directory=/app
 autostart=true
 autorestart=true
-environment=NODE_ENV="development",PORT="3000"
+startretries=5
+startsecs=10
 stdout_logfile=/var/log/nextjs.log
 stderr_logfile=/var/log/nextjs_error.log
+environment=NODE_ENV="development",PORT="3000",NEXT_TELEMETRY_DISABLED="1"
+priority=30
+
+[eventlistener:processes]
+command=bash -c "echo READY; while read line; do echo OK; done"
+events=PROCESS_STATE_STOPPED,PROCESS_STATE_EXITED,PROCESS_STATE_FATAL
 EOF
 
 # 啟動腳本
@@ -212,16 +229,48 @@ set -e
 echo "初始化環境..."
 mkdir -p user_documents user_indexes logs
 
+# 檢查必要目錄和文件
+echo "檢查系統配置..."
+for dir in user_documents user_indexes logs .next/static node_modules; do
+    if [ ! -d "$dir" ]; then
+        echo "創建目錄: $dir"
+        mkdir -p "$dir"
+    fi
+done
+
+# 檢查 Node.js 和 npm
+echo "檢查 Node.js 環境..."
+node --version
+npm --version
+
+# 檢查 Python 環境
+echo "檢查 Python 環境..."
+python --version
+pip --version
+
+# 檢查 Nginx 配置
+echo "檢查 Nginx 配置..."
+nginx -t || exit 1
+
+# 檢查必要的環境變數
+echo "檢查環境變數..."
+: "${PORT:=80}"
+: "${MAX_FILE_SIZE:=50M}"
+
 # 替換環境變數
-envsubst "\${PORT} \${MAX_FILE_SIZE}" < /etc/nginx/sites-available/default > /etc/nginx/sites-available/default.tmp
-mv /etc/nginx/sites-available/default.tmp /etc/nginx/sites-available/default
+echo "配置 Nginx..."
+sed -i "s/client_max_body_size.*;/client_max_body_size ${MAX_FILE_SIZE};/" /etc/nginx/sites-available/default
 
 echo "啟動服務..."
-exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+exec /usr/bin/supervisord -n -c /etc/supervisor/conf.d/supervisord.conf
 EOF
 
 RUN chmod +x /app/start.sh
 
-EXPOSE ${PORT}
+# 健康檢查
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost/health || curl -f http://localhost:80/health || exit 1
+
+EXPOSE 80
 
 CMD ["/app/start.sh"] 
