@@ -6,7 +6,7 @@
 type = "python"
 
 # 指定 Python 版本
-python_version = "3.11"
+python_version = "3.9"
 
 # 指定依賴文件（會依序嘗試）
 requirements = [
@@ -27,14 +27,14 @@ echo "✅ 依賴安裝完成"
 """
 
 [run]
-# 啟動命令
-start_command = "python start_zeabur_server.py"
+# 啟動命令 - 同時啟動前後端
+start_command = "python zeabur_start_system.py"
 
 # 工作目錄
 working_directory = "."
 
 # 暴露端口
-port = 8000
+port = 3000
 
 # 環境變數
 [env]

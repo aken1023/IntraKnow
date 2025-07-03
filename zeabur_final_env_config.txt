@@ -1,0 +1,28 @@
+# Zeabur 最終環境變數配置
+# 基於你現有配置的優化版本
+
+# ==================== 核心配置 ====================
+PORT=8000
+DEEPSEEK_API_KEY=sk-888548c4041b4699b8bcf331f391b73a
+SECRET_KEY=Qzg1H4MbP2Gj8uYBUJa06EdmNO97D5I3
+DATABASE_URL=sqlite:///./knowledge_base.db
+
+# ==================== 網路配置 ====================
+FRONTEND_URL=https://intraknow.zeabur.app
+NEXT_PUBLIC_API_URL=https://intraknow.zeabur.app
+HOST=0.0.0.0
+ALLOW_ALL_ORIGINS=true
+
+# ==================== Python 環境 ====================
+PYTHON_VERSION=3.9
+PYTHONUNBUFFERED=1
+PYTHONDONTWRITEBYTECODE=1
+
+# ==================== AI 模型配置 ====================
+EMBEDDING_MODEL=BAAI/bge-base-zh
+MODEL_NAME=deepseek-chat
+
+# ==================== 可移除的變數 ====================
+# 以下變數可以從 Zeabur 控制台中移除：
+# PASSWORD=Qzg1H4MbP2Gj8uYBUJa06EdmNO97D5I3  (已用作 SECRET_KEY)
+# NODE_VERSION=18  (後端不需要) 

@@ -1,0 +1,64 @@
+# Zeabur 多服務配置 - 前後端分離
+# 企業知識庫系統（LlamaIndex + FAISS + 用戶認證）
+
+# ==================== 前端服務 ====================
+[services.frontend]
+name = "frontend"
+type = "nodejs"
+build = "npm run build"
+start = "npm start"
+port = 3000
+
+[services.frontend.env]
+NEXT_PUBLIC_API_URL = "https://intraknow.zeabur.app/api"
+NODE_ENV = "production"
+
+# ==================== 後端服務 ====================  
+[services.backend]
+name = "backend"
+type = "python"
+python_version = "3.9"
+requirements = [
+    "scripts/requirements-api-only.txt",
+    "scripts/requirements-minimal.txt", 
+    "scripts/requirements-zeabur.txt",
+    "scripts/requirements.txt"
+]
+start = "python scripts/main.py"
+port = 8000
+
+[services.backend.env]
+PORT = "8000"
+HOST = "0.0.0.0"
+PYTHONPATH = "/opt/zeabur/src"
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
+
+# ==================== 路由配置 ====================
+[[routes]]
+source = "/api"
+destination = "backend"
+
+[[routes]] 
+source = "/"
+destination = "frontend"
+
+# ==================== 存儲配置 ====================
+[storage]
+user_documents = {
+    path = "user_documents",
+    type = "persistent", 
+    size = "5GB"
+}
+
+user_indexes = {
+    path = "user_indexes",
+    type = "persistent",
+    size = "2GB" 
+}
+
+database = {
+    path = "knowledge_base.db",
+    type = "persistent",
+    size = "1GB"
+} 
